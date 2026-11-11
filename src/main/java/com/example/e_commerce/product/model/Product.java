@@ -49,6 +49,9 @@ public class Product {
     private BigDecimal averageRating= BigDecimal.valueOf(0);
     @Builder.Default
     private BigDecimal reviewCount= BigDecimal.valueOf( 0);
+
+    private String suspensionReason;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
     @UpdateTimestamp

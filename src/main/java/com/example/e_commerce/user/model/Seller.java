@@ -37,6 +37,8 @@ public class Seller {
     @Builder.Default
     private SellerStatus status = SellerStatus.PENDING;
 
+    private String suspensionReason;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 
