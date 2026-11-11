@@ -1,0 +1,84 @@
+package com.example.e_commerce.product.service;
+
+import com.example.e_commerce.product.dto.request.ProductRequestDto;
+import com.example.e_commerce.product.dto.response.ProductResponseDto;
+import com.example.e_commerce.product.exception.ProductNotFoundException;
+import com.example.e_commerce.product.exception.UnauthorizedProductAccessException;
+import com.example.e_commerce.product.mapper.ProductMapper;
+import com.example.e_commerce.product.model.Product;
+import com.example.e_commerce.product.repo.ProductRepository;
+import com.example.e_commerce.user.model.User;
+import com.example.e_commerce.user.repo.UserRepo;
+import jakarta.transaction.Transactional;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Service;
+
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class ProductService {
+
+    private final ProductRepository productRepository;
+    private final UserRepo userRepo;
+    private final ProductMapper productMapper;
+
+    @Transactional
+    public ProductResponseDto addProduct(ProductRequestDto request) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String email = authentication.getName();
+        User user = userRepo.findByEmail(email);
+
+        Product product = productMapper.toEntity(request, user.getSeller().getId());
+        Product saved = productRepository.save(product);
+
+        log.info("Seller {} added new product: {} (ID: {})", email, saved.getName(), saved.getId());
+
+        return productMapper.toResponse(saved);
+    }
+
+    @Transactional
+    public ProductResponseDto updateProduct(UUID productId, ProductRequestDto request) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String email = authentication.getName();
+        User user = userRepo.findByEmail(email);
+        UUID sellerId = user.getSeller().getId();
+
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new ProductNotFoundException("Product not found with id: " + productId));
+
+        if (!product.getSellerId().equals(sellerId)) {
+            throw new UnauthorizedProductAccessException("You do not own this product");
+        }
+
+        productMapper.updateEntity(product, request);
+
+        Product saved = productRepository.save(product);
+
+        log.info("Seller {} updated product: {} (ID: {})", email, saved.getName(), productId);
+
+        return productMapper.toResponse(saved);
+    }
+
+    @Transactional
+    public void deleteProduct(UUID productId) {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String email = authentication.getName();
+        User user = userRepo.findByEmail(email);
+        UUID sellerId = user.getSeller().getId();
+
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new ProductNotFoundException("Product not found with id: " + productId));
+
+        if (!product.getSellerId().equals(sellerId)) {
+            throw new UnauthorizedProductAccessException("You do not own this product");
+        }
+
+        productRepository.delete(product);
+        log.info("Seller {} deleted product: {} (ID: {})", email, product.getName(), productId);
+    }
+}
