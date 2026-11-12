@@ -39,9 +39,9 @@ public class CartController {
         return ResponseEntity.ok(response);
     }
 
-    @PutMapping
-    public ResponseEntity<CartResponse> updateQuantity(@Valid @RequestBody UpdateCartItemRequest request) {
-        CartResponse response = cartService.updateQuantity(request);
+    @PutMapping("/{productId}")
+    public ResponseEntity<CartResponse> updateQuantity(@PathVariable UUID productId, @Valid @RequestBody UpdateCartItemRequest request) {
+        CartResponse response = cartService.updateQuantity(productId, request);
         return ResponseEntity.ok(response);
     }
 

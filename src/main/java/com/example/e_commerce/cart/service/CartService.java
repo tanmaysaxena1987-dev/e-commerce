@@ -104,22 +104,22 @@ public class CartService {
     }
 
     @Transactional
-    public CartResponse updateQuantity(UpdateCartItemRequest request) {
+    public CartResponse updateQuantity(UUID productId, UpdateCartItemRequest request) {
         User user = getCurrentUser();
         Cart cart = getOrCreateCart(user);
 
-        CartItem item = cartItemRepository.findByCartIdAndProductId(cart.getId(), request.getProductId())
-                .orElseThrow(() -> new ProductNotFoundException("Product not found in cart with id: " + request.getProductId()));
+        CartItem item = cartItemRepository.findByCartIdAndProductId(cart.getId(), productId)
+                .orElseThrow(() -> new ProductNotFoundException("Product not found in cart with id: " + productId));
 
         if (request.getQuantity() <= 0) {
             // Remove if quantity is 0 or negative
             cart.getItems().remove(item);
             cartItemRepository.delete(item);
-            log.info("Removed product {} from cart of user {} (quantity set to 0)", request.getProductId(), user.getEmail());
+            log.info("Removed product {} from cart of user {} (quantity set to 0)", productId, user.getEmail());
         } else {
             item.setQuantity(request.getQuantity());
             cartItemRepository.save(item);
-            log.info("Updated quantity for product {} in cart of user {} to {}", request.getProductId(), user.getEmail(), request.getQuantity());
+            log.info("Updated quantity for product {} in cart of user {} to {}", productId, user.getEmail(), request.getQuantity());
         }
 
         return cartMapper.toResponse(cart);

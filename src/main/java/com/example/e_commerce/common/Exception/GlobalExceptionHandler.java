@@ -1,5 +1,6 @@
 package com.example.e_commerce.common.Exception;
 
+import com.example.e_commerce.order.exception.OrderNotFoundException;
 import com.example.e_commerce.product.exception.ProductNotFoundException;
 import com.example.e_commerce.product.exception.UnauthorizedProductAccessException;
 import com.example.e_commerce.user.dto.response.ExceptionDto;
@@ -51,6 +52,14 @@ public class GlobalExceptionHandler {
                 "Concurrent modification detected. Please retry.",
                 "OptimisticLock", 409, request.getRequestURI());
         return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
+
+    // ========== Order Module Exceptions ==========
+
+    @ExceptionHandler(OrderNotFoundException.class)
+    public ResponseEntity<ExceptionDto> orderNotFound(HttpServletRequest request, Exception ex) {
+        ExceptionDto response = new ExceptionDto(ex.getMessage(), "OrderNotFound", 404, request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
     }
 
     @ExceptionHandler(IllegalStateException.class)
