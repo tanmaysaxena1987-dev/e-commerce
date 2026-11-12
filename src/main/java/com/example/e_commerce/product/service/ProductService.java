@@ -9,14 +9,18 @@ import com.example.e_commerce.product.model.Product;
 import com.example.e_commerce.product.repo.ProductRepository;
 import com.example.e_commerce.user.model.User;
 import com.example.e_commerce.user.repo.UserRepo;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
@@ -26,6 +30,47 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final UserRepo userRepo;
     private final ProductMapper productMapper;
+    private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
+
+    public ProductResponseDto getProduct(UUID productId) {
+        String cacheKey = "product:" + productId;
+
+        String cached = stringRedisTemplate.opsForValue().get(cacheKey);
+        if (cached != null) {
+            try {
+                log.info("Returning cached product: {}", productId);
+                return objectMapper.readValue(cached, ProductResponseDto.class);
+            } catch (Exception e) {
+                log.warn("Failed to deserialize cached product {}, fetching from DB", productId);
+            }
+        }
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() -> new ProductNotFoundException("Product not found with id: " + productId));
+
+        ProductResponseDto response = productMapper.toResponse(product);
+
+        try {
+            stringRedisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(response), 10, TimeUnit.MINUTES);
+            // Also cache just the price separately for quick lookups
+            stringRedisTemplate.opsForValue().set("product:price:" + productId, product.getPrice().toPlainString(), 10, TimeUnit.MINUTES);
+            log.info("Cached product {} in Redis", productId);
+        } catch (Exception e) {
+            log.warn("Failed to cache product {} in Redis: {}", productId, e.getMessage());
+        }
+
+        return response;
+    }
+
+    private void evictProductCache(UUID productId) {
+        try {
+            stringRedisTemplate.delete("product:" + productId);
+            stringRedisTemplate.delete("product:price:" + productId);
+            log.info("Evicted Redis cache for product {}", productId);
+        } catch (Exception e) {
+            log.warn("Failed to evict cache for product {}: {}", productId, e.getMessage());
+        }
+    }
 
     @Transactional
     public ProductResponseDto addProduct(ProductRequestDto request) {
@@ -59,6 +104,9 @@ public class ProductService {
 
         Product saved = productRepository.save(product);
 
+        // Evict cache
+        evictProductCache(productId);
+
         log.info("Seller {} updated product: {} (ID: {})", email, saved.getName(), productId);
 
         return productMapper.toResponse(saved);
@@ -79,6 +127,10 @@ public class ProductService {
         }
 
         productRepository.delete(product);
+
+        // Evict cache
+        evictProductCache(productId);
+
         log.info("Seller {} deleted product: {} (ID: {})", email, product.getName(), productId);
     }
 }

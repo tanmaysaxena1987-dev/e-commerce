@@ -71,12 +71,6 @@ public class OrderController {
         return ResponseEntity.ok(response);
     }
 
-    @DeleteMapping("/{orderId}")
-    public ResponseEntity<Void> deleteOrder(@PathVariable UUID orderId) {
-        orderService.deleteOrder(orderId);
-        return ResponseEntity.noContent().build();
-    }
-
     @PutMapping("/{orderId}/return")
     public ResponseEntity<OrderResponse> returnOrder(
             @PathVariable UUID orderId,

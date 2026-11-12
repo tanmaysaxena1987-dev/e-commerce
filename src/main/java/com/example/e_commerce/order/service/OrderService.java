@@ -151,24 +151,6 @@ public class OrderService {
         return orderMapper.toResponse(order);
     }
 
-    @Transactional
-    public void deleteOrder(UUID orderId) {
-        User user = getCurrentUser();
-        Order order = orderRepository.findByIdAndUserId(orderId, user.getId())
-                .orElseThrow(() -> new OrderNotFoundException("Order not found with id: " + orderId));
-
-        // Only allow deletion of cancelled or returned orders
-        if (order.getStatus() != OrderStatus.CANCELLED &&
-                order.getStatus() != OrderStatus.RETURNED &&
-                order.getStatus() != OrderStatus.REFUNDED) {
-            throw new IllegalStateException(
-                    "Only cancelled, returned or refunded orders can be deleted. Current status: " + order.getStatus());
-        }
-
-        orderRepository.delete(order);
-        log.info("Order deleted. Order ID: {}", orderId);
-    }
-
     public OrderTrackingResponse trackOrder(UUID orderId) {
         User user = getCurrentUser();
         Order order = orderRepository.findByIdAndUserId(orderId, user.getId())
