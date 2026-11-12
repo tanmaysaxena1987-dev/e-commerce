@@ -6,14 +6,19 @@ import com.example.e_commerce.cart.repo.CartItemRepository;
 import com.example.e_commerce.cart.repo.CartRepository;
 import com.example.e_commerce.order.dto.request.PlaceOrderRequest;
 import com.example.e_commerce.order.dto.request.ReturnOrderRequest;
+import com.example.e_commerce.order.dto.request.ReviewRequest;
 import com.example.e_commerce.order.dto.response.OrderResponse;
 import com.example.e_commerce.order.dto.response.OrderTrackingResponse;
+import com.example.e_commerce.order.dto.response.ReviewResponse;
 import com.example.e_commerce.order.enums.OrderStatus;
 import com.example.e_commerce.order.exception.OrderNotFoundException;
 import com.example.e_commerce.order.mapper.OrderMapper;
 import com.example.e_commerce.order.model.Order;
 import com.example.e_commerce.order.model.OrderItem;
+import com.example.e_commerce.order.model.Review;
+import com.example.e_commerce.order.repo.OrderItemRepository;
 import com.example.e_commerce.order.repo.OrderRepository;
+import com.example.e_commerce.order.repo.ReviewRepository;
 import com.example.e_commerce.product.model.Product;
 import com.example.e_commerce.product.repo.ProductRepository;
 import com.example.e_commerce.user.model.User;
@@ -38,6 +43,8 @@ import java.util.UUID;
 public class OrderService {
 
     private final OrderRepository orderRepository;
+    private final OrderItemRepository orderItemRepository;
+    private final ReviewRepository reviewRepository;
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
     private final ProductRepository productRepository;
@@ -193,6 +200,68 @@ public class OrderService {
                 order.getId(), request.getReturnReason());
 
         return orderMapper.toResponse(order);
+    }
+
+    @Transactional
+    public ReviewResponse reviewOrderItem(UUID orderItemId, ReviewRequest request) {
+        User user = getCurrentUser();
+
+        OrderItem orderItem = orderItemRepository.findById(orderItemId)
+                .orElseThrow(() -> new OrderNotFoundException("Order item not found with id: " + orderItemId));
+
+        Order order = orderItem.getOrder();
+
+        // Verify the order belongs to the current user
+        if (!order.getUser().getId().equals(user.getId())) {
+            throw new OrderNotFoundException("Order item not found with id: " + orderItemId);
+        }
+
+        // Only delivered orders can be reviewed
+        if (order.getStatus() != OrderStatus.DELIVERED) {
+            throw new IllegalStateException(
+                    "You can only review items from delivered orders. Current order status: " + order.getStatus());
+        }
+
+        // Check if already reviewed
+        if (reviewRepository.existsByOrderItemIdAndUserId(orderItemId, user.getId())) {
+            throw new IllegalStateException("You have already reviewed this item");
+        }
+
+        Product product = orderItem.getProduct();
+
+        // Create the review
+        Review review = Review.builder()
+                .orderItem(orderItem)
+                .product(product)
+                .user(user)
+                .rating(request.getRating())
+                .comment(request.getComment())
+                .build();
+
+        reviewRepository.save(review);
+
+        // Recalculate and update the product's average rating
+        Double avgRating = reviewRepository.averageRatingByProductId(product.getId());
+        Long reviewCount = reviewRepository.countByProductId(product.getId());
+
+        if (avgRating != null) {
+            product.setAverageRating(BigDecimal.valueOf(Math.round(avgRating * 100.0) / 100.0));
+        }
+        product.setReviewCount(BigDecimal.valueOf(reviewCount));
+        productRepository.save(product);
+
+        log.info("User {} reviewed order item {} for product {} with {} stars",
+                user.getEmail(), orderItemId, product.getName(), request.getRating());
+
+        return ReviewResponse.builder()
+                .id(review.getId())
+                .orderItemId(orderItemId)
+                .productId(product.getId())
+                .productName(product.getName())
+                .rating(request.getRating())
+                .comment(request.getComment())
+                .createdAt(review.getCreatedAt())
+                .build();
     }
 
     public OrderResponse getOrder(UUID orderId) {

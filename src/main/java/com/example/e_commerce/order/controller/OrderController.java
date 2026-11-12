@@ -2,8 +2,10 @@ package com.example.e_commerce.order.controller;
 
 import com.example.e_commerce.order.dto.request.PlaceOrderRequest;
 import com.example.e_commerce.order.dto.request.ReturnOrderRequest;
+import com.example.e_commerce.order.dto.request.ReviewRequest;
 import com.example.e_commerce.order.dto.response.OrderResponse;
 import com.example.e_commerce.order.dto.response.OrderTrackingResponse;
+import com.example.e_commerce.order.dto.response.ReviewResponse;
 import com.example.e_commerce.order.enums.OrderStatus;
 import com.example.e_commerce.order.service.OrderService;
 import jakarta.validation.Valid;
@@ -77,5 +79,13 @@ public class OrderController {
             @Valid @RequestBody ReturnOrderRequest request) {
         OrderResponse response = orderService.returnOrder(orderId, request);
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/items/{orderItemId}/review")
+    public ResponseEntity<ReviewResponse> reviewOrderItem(
+            @PathVariable UUID orderItemId,
+            @Valid @RequestBody ReviewRequest request) {
+        ReviewResponse response = orderService.reviewOrderItem(orderItemId, request);
+        return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 }
