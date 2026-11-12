@@ -1,5 +1,6 @@
 package com.example.e_commerce.user.model;
 
+import com.example.e_commerce.cart.model.Cart;
 import com.example.e_commerce.user.enums.Gender;
 import com.example.e_commerce.user.enums.Role;
 import jakarta.persistence.*;
@@ -63,5 +64,8 @@ public class User {
 
     @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private Admin admin;
+
+    @OneToOne(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private Cart cart;
 
 }
