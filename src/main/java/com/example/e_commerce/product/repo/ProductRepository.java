@@ -13,6 +13,6 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
     @Query("SELECT p FROM Product AS p WHERE "+
     "LOWER(p.name) LIKE LOWER(CONCAT('%',:keyword,'%') ) OR " +
             "LOWER(p.brand) LIKE LOWER(CONCAT('%',:keyword,'%') ) OR " +
-            "LOWER(p.description) LIKE LOWER(concat('%',:keyowrd,'%') ) ")
+            "LOWER(p.description) LIKE LOWER(concat('%',:keyword,'%') ) ")
     List<Product> searchProduct(String keyword);
 }
