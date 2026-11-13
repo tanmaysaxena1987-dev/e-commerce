@@ -19,6 +19,7 @@ import com.example.e_commerce.order.model.Review;
 import com.example.e_commerce.order.repo.OrderItemRepository;
 import com.example.e_commerce.order.repo.OrderRepository;
 import com.example.e_commerce.order.repo.ReviewRepository;
+import com.example.e_commerce.product.exception.InsufficientStockException;
 import com.example.e_commerce.product.model.Product;
 import com.example.e_commerce.product.repo.ProductRepository;
 import com.example.e_commerce.user.model.User;
@@ -73,32 +74,17 @@ public class OrderService {
             throw new IllegalStateException("Cart is empty. Add items before placing an order.");
         }
 
-        // Create the order
-        Order order = Order.builder()
-                .user(user)
-                .trackingNumber(generateTrackingNumber())
-                .status(OrderStatus.PENDING)
-                .shippingAddress(request.getShippingAddress())
-                .city(request.getCity())
-                .state(request.getState())
-                .zipCode(request.getZipCode())
-                .country(request.getCountry())
-                .phoneNumber(request.getPhoneNumber())
-                .deliveryNotes(request.getDeliveryNotes())
-                .shippingCost(request.getShippingCost())
-                .tax(BigDecimal.ZERO)
-                .totalAmount(cart.getTotal())
-                .build();
-
-        // Convert cart items to order items (use a local copy so order is effectively final in the lambda)
+        // Create the order via mapper
+        Order order = orderMapper.toOrder(user, generateTrackingNumber(), request, cart.getTotal());
         final Order finalOrder = order;
+
+        // Convert cart items to order items and validate stock
         List<OrderItem> orderItems = cart.getItems().stream()
                 .map(cartItem -> {
                     Product product = cartItem.getProduct();
 
-                    // Decrease stock
                     if (product.getStockQuantity() < cartItem.getQuantity()) {
-                        throw new IllegalStateException(
+                        throw new InsufficientStockException(
                                 "Insufficient stock for product: " + product.getName() +
                                 ". Available: " + product.getStockQuantity() +
                                 ", requested: " + cartItem.getQuantity());
@@ -106,13 +92,7 @@ public class OrderService {
                     product.setStockQuantity(product.getStockQuantity() - cartItem.getQuantity());
                     productRepository.save(product);
 
-                    return OrderItem.builder()
-                            .order(finalOrder)
-                            .product(product)
-                            .quantity(cartItem.getQuantity())
-                            .price(product.getPrice())
-                            .subtotal(cartItem.getSubtotal())
-                            .build();
+                    return orderMapper.toOrderItem(finalOrder, cartItem, product);
                 })
                 .toList();
 
@@ -229,15 +209,8 @@ public class OrderService {
 
         Product product = orderItem.getProduct();
 
-        // Create the review
-        Review review = Review.builder()
-                .orderItem(orderItem)
-                .product(product)
-                .user(user)
-                .rating(request.getRating())
-                .comment(request.getComment())
-                .build();
-
+        // Create the review via mapper
+        Review review = orderMapper.toReview(orderItem, product, user, request);
         reviewRepository.save(review);
 
         // Recalculate and update the product's average rating
@@ -253,15 +226,7 @@ public class OrderService {
         log.info("User {} reviewed order item {} for product {} with {} stars",
                 user.getEmail(), orderItemId, product.getName(), request.getRating());
 
-        return ReviewResponse.builder()
-                .id(review.getId())
-                .orderItemId(orderItemId)
-                .productId(product.getId())
-                .productName(product.getName())
-                .rating(request.getRating())
-                .comment(request.getComment())
-                .createdAt(review.getCreatedAt())
-                .build();
+        return orderMapper.toReviewResponse(review);
     }
 
     public OrderResponse getOrder(UUID orderId) {

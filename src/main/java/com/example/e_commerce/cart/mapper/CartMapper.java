@@ -1,11 +1,15 @@
 package com.example.e_commerce.cart.mapper;
 
+import com.example.e_commerce.cart.dto.request.AddToCartRequest;
 import com.example.e_commerce.cart.dto.response.CartItemResponse;
 import com.example.e_commerce.cart.dto.response.CartResponse;
 import com.example.e_commerce.cart.model.Cart;
 import com.example.e_commerce.cart.model.CartItem;
+import com.example.e_commerce.product.model.Product;
+import com.example.e_commerce.user.model.User;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Component
@@ -26,6 +30,21 @@ public class CartMapper {
                 .items(itemResponses)
                 .total(cart.getTotal())
                 .totalItems(totalItems)
+                .build();
+    }
+
+    public Cart newCart(User user) {
+        return Cart.builder()
+                .user(user)
+                .items(new ArrayList<>())
+                .build();
+    }
+
+    public CartItem toCartItem(Cart cart, Product product, AddToCartRequest request) {
+        return CartItem.builder()
+                .cart(cart)
+                .product(product)
+                .quantity(request.getQuantity())
                 .build();
     }
 

@@ -23,7 +23,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -47,10 +46,7 @@ public class CartService {
     private Cart getOrCreateCart(User user) {
         return cartRepository.findByUserId(user.getId())
                 .orElseGet(() -> {
-                    Cart newCart = Cart.builder()
-                            .user(user)
-                            .items(new ArrayList<>())
-                            .build();
+                    Cart newCart = cartMapper.newCart(user);
                     Cart saved = cartRepository.save(newCart);
                     log.info("Created new cart for user: {}", user.getEmail());
                     return saved;
@@ -74,11 +70,7 @@ public class CartService {
             cartItemRepository.save(item);
             log.info("Increased quantity for product {} in cart of user {}", product.getName(), user.getEmail());
         } else {
-            CartItem newItem = CartItem.builder()
-                    .cart(cart)
-                    .product(product)
-                    .quantity(request.getQuantity())
-                    .build();
+            CartItem newItem = cartMapper.toCartItem(cart, product, request);
             cart.getItems().add(newItem);
             cartItemRepository.save(newItem);
             log.info("Added product {} to cart of user {}", product.getName(), user.getEmail());

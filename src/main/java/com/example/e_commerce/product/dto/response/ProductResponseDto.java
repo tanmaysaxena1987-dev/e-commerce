@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -28,6 +29,8 @@ public class ProductResponseDto {
     private String imageUrl;
     private BigDecimal averageRating;
     private BigDecimal reviewCount;
+    @Builder.Default
+    private List<ReviewCommentDto> reviews = List.of();
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

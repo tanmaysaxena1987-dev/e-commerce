@@ -13,7 +13,6 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/seller")
 @RequiredArgsConstructor
-@Slf4j
 public class SellerController {
 
     private final SellerService sellerService;

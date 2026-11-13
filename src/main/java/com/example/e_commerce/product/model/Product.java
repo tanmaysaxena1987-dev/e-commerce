@@ -9,6 +9,8 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -49,6 +51,10 @@ public class Product {
     private BigDecimal averageRating= BigDecimal.valueOf(0);
     @Builder.Default
     private BigDecimal reviewCount= BigDecimal.valueOf( 0);
+
+    @OneToMany(mappedBy = "product", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @Builder.Default
+    private List<com.example.e_commerce.order.model.Review> reviews = new ArrayList<>();
 
     private String suspensionReason;
 

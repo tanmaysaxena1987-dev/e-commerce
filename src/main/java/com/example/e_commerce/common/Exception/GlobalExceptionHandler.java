@@ -1,6 +1,7 @@
 package com.example.e_commerce.common.Exception;
 
 import com.example.e_commerce.order.exception.OrderNotFoundException;
+import com.example.e_commerce.product.exception.InsufficientStockException;
 import com.example.e_commerce.product.exception.ProductNotFoundException;
 import com.example.e_commerce.product.exception.UnauthorizedProductAccessException;
 import com.example.e_commerce.user.dto.response.ExceptionDto;
@@ -44,6 +45,12 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ExceptionDto> unauthorizedProductAccess(HttpServletRequest request, Exception ex) {
         ExceptionDto response = new ExceptionDto(ex.getMessage(), "UnauthorizedAccess", 403, request.getRequestURI());
         return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+    }
+
+    @ExceptionHandler(InsufficientStockException.class)
+    public ResponseEntity<ExceptionDto> insufficientStock(HttpServletRequest request, Exception ex) {
+        ExceptionDto response = new ExceptionDto(ex.getMessage(), "InsufficientStock", 409, request.getRequestURI());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
     }
 
     @ExceptionHandler(ObjectOptimisticLockingFailureException.class)

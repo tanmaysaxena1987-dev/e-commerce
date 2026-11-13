@@ -1,12 +1,21 @@
 package com.example.e_commerce.order.mapper;
 
+import com.example.e_commerce.cart.model.CartItem;
+import com.example.e_commerce.order.dto.request.PlaceOrderRequest;
+import com.example.e_commerce.order.dto.request.ReviewRequest;
 import com.example.e_commerce.order.dto.response.OrderItemResponse;
 import com.example.e_commerce.order.dto.response.OrderResponse;
 import com.example.e_commerce.order.dto.response.OrderTrackingResponse;
+import com.example.e_commerce.order.dto.response.ReviewResponse;
+import com.example.e_commerce.order.enums.OrderStatus;
 import com.example.e_commerce.order.model.Order;
 import com.example.e_commerce.order.model.OrderItem;
+import com.example.e_commerce.order.model.Review;
+import com.example.e_commerce.product.model.Product;
+import com.example.e_commerce.user.model.User;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 @Component
@@ -53,6 +62,56 @@ public class OrderMapper {
                 .quantity(item.getQuantity())
                 .price(item.getPrice())
                 .subtotal(item.getSubtotal())
+                .build();
+    }
+
+    public Order toOrder(User user, String trackingNumber, PlaceOrderRequest request, BigDecimal totalAmount) {
+        return Order.builder()
+                .user(user)
+                .trackingNumber(trackingNumber)
+                .status(OrderStatus.PENDING)
+                .shippingAddress(request.getShippingAddress())
+                .city(request.getCity())
+                .state(request.getState())
+                .zipCode(request.getZipCode())
+                .country(request.getCountry())
+                .phoneNumber(request.getPhoneNumber())
+                .deliveryNotes(request.getDeliveryNotes())
+                .shippingCost(request.getShippingCost())
+                .tax(BigDecimal.ZERO)
+                .totalAmount(totalAmount)
+                .build();
+    }
+
+    public OrderItem toOrderItem(Order order, CartItem cartItem, Product product) {
+        return OrderItem.builder()
+                .order(order)
+                .product(product)
+                .quantity(cartItem.getQuantity())
+                .price(product.getPrice())
+                .subtotal(cartItem.getSubtotal())
+                .build();
+    }
+
+    public Review toReview(OrderItem orderItem, Product product, User user, ReviewRequest request) {
+        return Review.builder()
+                .orderItem(orderItem)
+                .product(product)
+                .user(user)
+                .rating(request.getRating())
+                .comment(request.getComment())
+                .build();
+    }
+
+    public ReviewResponse toReviewResponse(Review review) {
+        return ReviewResponse.builder()
+                .id(review.getId())
+                .orderItemId(review.getOrderItem().getId())
+                .productId(review.getProduct().getId())
+                .productName(review.getProduct().getName())
+                .rating(review.getRating())
+                .comment(review.getComment())
+                .createdAt(review.getCreatedAt())
                 .build();
     }
 

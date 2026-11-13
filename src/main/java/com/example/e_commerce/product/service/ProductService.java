@@ -2,6 +2,7 @@ package com.example.e_commerce.product.service;
 
 import com.example.e_commerce.product.dto.request.ProductRequestDto;
 import com.example.e_commerce.product.dto.response.ProductResponseDto;
+import java.util.List;
 import com.example.e_commerce.product.exception.ProductNotFoundException;
 import com.example.e_commerce.product.exception.UnauthorizedProductAccessException;
 import com.example.e_commerce.product.mapper.ProductMapper;
@@ -18,7 +19,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -52,7 +52,6 @@ public class ProductService {
 
         try {
             stringRedisTemplate.opsForValue().set(cacheKey, objectMapper.writeValueAsString(response), 10, TimeUnit.MINUTES);
-            // Also cache just the price separately for quick lookups
             stringRedisTemplate.opsForValue().set("product:price:" + productId, product.getPrice().toPlainString(), 10, TimeUnit.MINUTES);
             log.info("Cached product {} in Redis", productId);
         } catch (Exception e) {
@@ -104,7 +103,6 @@ public class ProductService {
 
         Product saved = productRepository.save(product);
 
-        // Evict cache
         evictProductCache(productId);
 
         log.info("Seller {} updated product: {} (ID: {})", email, saved.getName(), productId);
@@ -132,5 +130,11 @@ public class ProductService {
         evictProductCache(productId);
 
         log.info("Seller {} deleted product: {} (ID: {})", email, product.getName(), productId);
+    }
+
+    public List<ProductResponseDto> searchProduct(String keyword) {
+        return productRepository.searchProduct(keyword).stream()
+                .map(productMapper::toResponse)
+                .toList();
     }
 }
