@@ -22,4 +22,11 @@ public class SellerController {
         SellerResponseDto response = sellerService.becomeSeller(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
+    @GetMapping("/me")
+    public ResponseEntity<SellerResponseDto> getMySellerApplication() {
+
+        return ResponseEntity.ok(
+                sellerService.getMySellerApplication()
+        );
+    }
 }

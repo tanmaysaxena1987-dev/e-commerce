@@ -18,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
 import java.util.UUID;
 
 @RestController
@@ -52,5 +53,23 @@ public class AdminController {
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         Page<UserResponseDto> users = adminService.listUsers(role, gender, age, pageable);
         return ResponseEntity.ok(users);
+    }
+
+    @GetMapping("/sellers/pending")
+    public ResponseEntity<List<SellerResponseDto>> getPendingSellers() {
+
+        return ResponseEntity.ok(
+                adminService.getPendingSellers()
+        );
+    }
+
+    @PutMapping("/seller/{sellerId}/approve")
+    public ResponseEntity<SellerResponseDto> approveSeller(
+            @PathVariable UUID sellerId
+    ) {
+
+        return ResponseEntity.ok(
+                adminService.approveSeller(sellerId)
+        );
     }
 }

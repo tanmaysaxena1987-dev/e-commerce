@@ -22,6 +22,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -90,5 +91,47 @@ public class AdminService {
         }
 
         return users.map(adminMapper::userToResponse);
+    }
+
+    @Transactional
+    public List<SellerResponseDto> getPendingSellers() {
+
+        return sellerRepo.findAllByStatus(SellerStatus.PENDING)
+                .stream()
+                .map(adminMapper::sellerToResponse)
+                .toList();
+    }
+    @Transactional
+    public SellerResponseDto approveSeller(UUID sellerId) {
+
+        Seller seller = sellerRepo.findById(sellerId)
+                .orElseThrow(() ->
+                        new IllegalStateException("Seller not found")
+                );
+
+        if (seller.getStatus() != SellerStatus.PENDING) {
+            throw new IllegalStateException(
+                    "Only pending applications can be approved"
+            );
+        }
+
+        User user = seller.getUser();
+
+        if (user.isSuspended()) {
+            throw new IllegalStateException(
+                    "Cannot approve a suspended user"
+            );
+        }
+
+        seller.setStatus(SellerStatus.APPROVED);
+
+        user.setRole(Role.SELLER);
+
+        log.info(
+                "Seller {} approved by admin",
+                seller.getStoreName()
+        );
+
+        return adminMapper.sellerToResponse(seller);
     }
 }

@@ -11,9 +11,11 @@ import com.example.e_commerce.user.repo.UserRepo;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
@@ -26,24 +28,59 @@ public class SellerService {
 
     @Transactional
     public SellerResponseDto becomeSeller(BecomeSellerRequestDto request) {
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+
+        Authentication authentication =
+                SecurityContextHolder.getContext().getAuthentication();
+
         String email = authentication.getName();
 
         User user = userRepo.findByEmail(email);
+
         if (user == null) {
-            throw new RuntimeException("User not found");
+            throw new IllegalStateException("User not found");
+        }
+
+        if (user.getRole() != Role.BUYER) {
+            throw new IllegalStateException(
+                    "Only buyers can submit seller applications"
+            );
         }
 
         if (user.getSeller() != null) {
-            throw new RuntimeException("User is already a seller");
+            throw new IllegalStateException(
+                    "Seller application already exists"
+            );
         }
 
         Seller seller = sellerMapper.toEntity(request, user);
-        user.setRole(Role.SELLER);
-        Seller saved = sellerRepo.save(seller);
-        userRepo.save(user);
 
-        log.info("User {} became a seller with store name {}", email, request.getStoreName());
-        return sellerMapper.toResponse(saved);
+        user.setSeller(seller);
+
+        Seller savedSeller = sellerRepo.saveAndFlush(seller);
+
+        log.info(
+                "Seller application submitted by {} for store {}",
+                email,
+                request.getStoreName()
+        );
+
+        return sellerMapper.toResponse(savedSeller);
+    }
+    @Transactional
+    public SellerResponseDto getMySellerApplication() {
+
+        Authentication authentication =
+                SecurityContextHolder.getContext().getAuthentication();
+
+        User user = userRepo.findByEmail(authentication.getName());
+
+        if (user == null || user.getSeller() == null) {
+            throw new ResponseStatusException(
+                    HttpStatus.NOT_FOUND,
+                    "No seller application found"
+            );
+        }
+
+        return sellerMapper.toResponse(user.getSeller());
     }
 }

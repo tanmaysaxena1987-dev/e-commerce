@@ -8,6 +8,7 @@ import com.example.e_commerce.product.exception.UnauthorizedProductAccessExcepti
 import com.example.e_commerce.product.mapper.ProductMapper;
 import com.example.e_commerce.product.model.Product;
 import com.example.e_commerce.product.repo.ProductRepository;
+import com.example.e_commerce.user.enums.SellerStatus;
 import com.example.e_commerce.user.model.User;
 import com.example.e_commerce.user.repo.UserRepo;
 import tools.jackson.databind.ObjectMapper;
@@ -75,9 +76,12 @@ public class ProductService {
     public ProductResponseDto addProduct(ProductRequestDto request) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String email = authentication.getName();
-        User user = userRepo.findByEmail(email);
+        UUID sellerId = getApprovedSellerId();
 
-        Product product = productMapper.toEntity(request, user.getSeller().getId());
+        Product product = productMapper.toEntity(
+                request,
+                sellerId
+        );
         Product saved = productRepository.save(product);
 
         log.info("Seller {} added new product: {} (ID: {})", email, saved.getName(), saved.getId());
@@ -89,9 +93,7 @@ public class ProductService {
     public ProductResponseDto updateProduct(UUID productId, ProductRequestDto request) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String email = authentication.getName();
-        User user = userRepo.findByEmail(email);
-        UUID sellerId = user.getSeller().getId();
-
+        UUID sellerId = getApprovedSellerId();
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ProductNotFoundException("Product not found with id: " + productId));
 
@@ -114,9 +116,7 @@ public class ProductService {
     public void deleteProduct(UUID productId) {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String email = authentication.getName();
-        User user = userRepo.findByEmail(email);
-        UUID sellerId = user.getSeller().getId();
-
+        UUID sellerId = getApprovedSellerId();
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ProductNotFoundException("Product not found with id: " + productId));
 
@@ -136,5 +136,27 @@ public class ProductService {
         return productRepository.searchProduct(keyword).stream()
                 .map(productMapper::toResponse)
                 .toList();
+    }
+
+    private UUID getApprovedSellerId() {
+
+        Authentication authentication =
+                SecurityContextHolder.getContext().getAuthentication();
+
+        String email = authentication.getName();
+
+        User user = userRepo.findByEmail(email);
+
+        if (user == null ||
+                user.isSuspended() ||
+                user.getSeller() == null ||
+                user.getSeller().getStatus() != SellerStatus.APPROVED) {
+
+            throw new UnauthorizedProductAccessException(
+                    "Your seller account is not approved"
+            );
+        }
+
+        return user.getSeller().getId();
     }
 }
