@@ -29,16 +29,6 @@ public class ProductController {
         ProductResponseDto response = productService.addProduct(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
-    @GetMapping("/debug")
-    public ResponseEntity<?> debug(Authentication authentication) {
-        return ResponseEntity.ok(Map.of(
-                "username", authentication.getName(),
-                "authorities", authentication.getAuthorities()
-                        .stream()
-                        .map(GrantedAuthority::getAuthority)
-                        .toList()
-        ));
-    }
 
     @PutMapping("/{productId}")
     @PreAuthorize("hasRole('SELLER')")

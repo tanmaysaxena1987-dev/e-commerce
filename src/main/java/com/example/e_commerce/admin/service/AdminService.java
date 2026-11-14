@@ -1,5 +1,7 @@
 package com.example.e_commerce.admin.service;
 
+import com.example.e_commerce.admin.dto.request.AdminRegisterRequestDto;
+import com.example.e_commerce.admin.dto.response.AdminRegisterResponseDto;
 import com.example.e_commerce.admin.dto.response.ProductResponseDto;
 import com.example.e_commerce.admin.dto.response.SellerResponseDto;
 import com.example.e_commerce.admin.dto.response.UserResponseDto;
@@ -11,13 +13,16 @@ import com.example.e_commerce.product.repo.ProductRepository;
 import com.example.e_commerce.user.enums.Gender;
 import com.example.e_commerce.user.enums.Role;
 import com.example.e_commerce.user.enums.SellerStatus;
+import com.example.e_commerce.user.model.Admin;
 import com.example.e_commerce.user.model.Seller;
 import com.example.e_commerce.user.model.User;
+import com.example.e_commerce.user.repo.AdminRepo;
 import com.example.e_commerce.user.repo.SellerRepo;
 import com.example.e_commerce.user.repo.UserRepo;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -34,6 +39,32 @@ public class AdminService {
     private final SellerRepo sellerRepo;
     private final ProductRepository productRepository;
     private final AdminMapper adminMapper;
+    private final AdminRepo adminRepo;
+
+    @Value("${admin.secret-key:admin-secret-key}")
+    private String adminSecretKey;
+
+    @Transactional
+    public AdminRegisterResponseDto register(AdminRegisterRequestDto request) {
+        if (!adminSecretKey.equals(request.getAdminSecretKey())) {
+            throw new SecurityException("Invalid admin secret key");
+        }
+
+        if (userRepo.findByEmail(request.getEmail()) != null) {
+            throw new RuntimeException("Email already registered");
+        }
+
+        User user = adminMapper.toUserEntity(request);
+        User savedUser = userRepo.saveAndFlush(user);
+
+        Admin admin = Admin.builder()
+                .user(savedUser)
+                .build();
+        Admin savedAdmin = adminRepo.saveAndFlush(admin);
+
+        log.info("New admin registered: {}", savedUser.getEmail());
+        return adminMapper.toRegisterResponse(savedUser, savedAdmin);
+    }
 
     @Transactional
     public ProductResponseDto suspendProduct(UUID productId, String reason) {

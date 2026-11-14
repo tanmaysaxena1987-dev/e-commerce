@@ -1,15 +1,24 @@
 package com.example.e_commerce.admin.mapper;
 
+import com.example.e_commerce.admin.dto.request.AdminRegisterRequestDto;
+import com.example.e_commerce.admin.dto.response.AdminRegisterResponseDto;
 import com.example.e_commerce.admin.dto.response.ProductResponseDto;
 import com.example.e_commerce.admin.dto.response.SellerResponseDto;
 import com.example.e_commerce.admin.dto.response.UserResponseDto;
 import com.example.e_commerce.product.model.Product;
+import com.example.e_commerce.user.enums.Role;
+import com.example.e_commerce.user.model.Admin;
 import com.example.e_commerce.user.model.Seller;
 import com.example.e_commerce.user.model.User;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class AdminMapper {
+
+    private final PasswordEncoder passwordEncoder;
 
     public UserResponseDto userToResponse(User user) {
         return UserResponseDto.builder()
@@ -59,6 +68,34 @@ public class AdminMapper {
                 .suspensionReason(seller.getSuspensionReason())
                 .createdAt(seller.getCreatedAt())
                 .updatedAt(seller.getUpdatedAt())
+                .build();
+    }
+
+    public User toUserEntity(AdminRegisterRequestDto request) {
+        return User.builder()
+                .firstName(request.getFirstName())
+                .lastName(request.getLastName())
+                .email(request.getEmail())
+                .phone(request.getPhone())
+                .Password(passwordEncoder.encode(request.getPassword()))
+                .gender(request.getGender())
+                .age(request.getAge())
+                .role(Role.ADMIN)
+                .build();
+    }
+
+    public AdminRegisterResponseDto toRegisterResponse(User user, Admin admin) {
+        return AdminRegisterResponseDto.builder()
+                .id(admin.getId())
+                .userId(user.getId())
+                .firstName(user.getFirstName())
+                .lastName(user.getLastName())
+                .email(user.getEmail())
+                .phone(user.getPhone())
+                .role(user.getRole())
+                .gender(user.getGender())
+                .age(user.getAge())
+                .createdAt(user.getCreatedAt())
                 .build();
     }
 }

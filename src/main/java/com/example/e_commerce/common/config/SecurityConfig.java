@@ -38,6 +38,7 @@ public class SecurityConfig {
                                 "/js/**",
                                 "/favicon.ico",
                                 "/api/user/register",
+                                "/api/admin/register",
                                 "/api/auth/login",
                                 "/api/auth/forgot-password",
                                 "/api/auth/reset-password",
