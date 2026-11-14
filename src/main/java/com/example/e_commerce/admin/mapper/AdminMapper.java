@@ -81,6 +81,7 @@ public class AdminMapper {
                 .gender(request.getGender())
                 .age(request.getAge())
                 .role(Role.ADMIN)
+                .emailVerified(true)
                 .build();
     }
 

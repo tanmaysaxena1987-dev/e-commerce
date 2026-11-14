@@ -1,1515 +1,667 @@
+/* ShopSphere frontend — real Spring Boot API integration.
+ * Deploy these files under src/main/resources/static to avoid CORS.
+ * Security is enforced by Spring Security, not by hiding navigation buttons.
+ */
 (() => {
   'use strict';
 
-  // ==================== CONSTANTS & ENUMS ====================
+  const API = '/api';
+  const TOKEN_KEY = 'shopsphere_jwt';
+  const EMAIL_STATUS_PATH = '/user/email-status'; // Implement GET /api/user/email-status => { emailVerified: boolean }
+  const OTP_COOLDOWN_MS = 60_000;
   const CATEGORIES = [
-    'ELECTRONICS',
-    'CLOTHING',
-    'HOME_AND_KITCHEN',
-    'BOOKS',
-    'BEAUTY_AND_PERSONAL_CARE',
-    'SPORTS_AND_OUTDOORS',
-    'TOYS_AND_GAMES',
-    'AUTOMOTIVE',
-    'HEALTH_AND_WELLNESS',
-    'FOOD_AND_BEVERAGES',
-    'JEWELRY_AND_ACCESSORIES',
-    'PET_SUPPLIES',
-    'OFFICE_PRODUCTS',
-    'MUSICAL_INSTRUMENTS',
-    'ART_AND_CRAFT',
-    'BABY_PRODUCTS',
-    'GROCERY',
-    'OTHER'
+    ['ELECTRONICS', 'Electronics', '💻'], ['CLOTHING', 'Fashion', '👟'],
+    ['HOME_AND_KITCHEN', 'Home & living', '🏡'], ['BOOKS', 'Books', '📚'],
+    ['SPORTS_AND_OUTDOORS', 'Sports', '🏸'], ['BEAUTY_AND_PERSONAL_CARE', 'Beauty', '✨'],
+    ['TOYS_AND_GAMES', 'Toys & games', '🧩'], ['AUTOMOTIVE', 'Automotive', '🚙'],
+    ['HEALTH_AND_WELLNESS', 'Health', '🌿'], ['FOOD_AND_BEVERAGES', 'Food & drink', '☕'],
+    ['JEWELRY_AND_ACCESSORIES', 'Jewelry', '💍'], ['PET_SUPPLIES', 'Pets', '🐾'],
+    ['OFFICE_PRODUCTS', 'Office', '🖊'], ['MUSICAL_INSTRUMENTS', 'Music', '🎸'],
+    ['ART_AND_CRAFT', 'Art & craft', '🎨'], ['BABY_PRODUCTS', 'Baby', '🧸'],
+    ['GROCERY', 'Grocery', '🥑'], ['OTHER', 'Everything else', '✳']
   ];
-
-  const RETURN_REASONS = [
-    'DEFECTIVE_PRODUCT',
-    'WRONG_ITEM',
-    'SIZE_ISSUE',
-    'COLOR_ISSUE',
-    'DAMAGED_IN_TRANSIT',
-    'NOT_AS_DESCRIBED',
-    'LATE_DELIVERY',
-    'NO_LONGER_NEEDED',
-    'OTHER'
-  ];
-
-  const FALLBACK_IMG = 'https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80';
-
-  // ==================== STATE ====================
+  const ROUTES = new Set(['home','shop','deals','cart','checkout','orders','account','seller','admin']);
   const state = {
-    token: localStorage.getItem('ecommerce_jwt') || null,
-    user: null, // { username, authorities: [] }
-    products: [],
-    cart: null,
-    addresses: [],
-    orders: []
+    token: localStorage.getItem(TOKEN_KEY) || '',
+    email: '', role: 'GUEST', seller: null, products: [],
+    cart: null, addresses: [], ordersPage: 0, catalogPage: 0,
+    catalogQuery: '', category: '', currentRoute: 'home',
+    currentOrder: null, adminsChecked: false, bannerIndex: 0,
+    emailVerified: null, emailStatusLoading: false, emailStatusRequest: 0,
+    emailOtpSending: false, resetOtpSending: false,
+    profile: null
   };
+  const el = id => document.getElementById(id);
+  const esc = input => String(input ?? '').replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+  const money = value => new Intl.NumberFormat('en-IN', {style: 'currency', currency: 'INR', maximumFractionDigits: 2}).format(Number(value) || 0);
+  const humanDate = date => date ? new Date(date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '';
+  const labelFor = (value) => CATEGORIES.find(c => c[0] === value)?.[1] || String(value || 'Other').replaceAll('_', ' ').toLowerCase();
+  const categoryIcon = value => CATEGORIES.find(c => c[0] === value)?.[2] || '✳';
+  const inStock = p => p?.status === 'AVAILABLE' && Number(p?.stockQuantity || 0) > 0;
+  const discountOf = p => { const prev = Number(p?.compareAtPrice); const now = Number(p?.price); return prev > now && now > 0 ? Math.round((prev-now)/prev*100) : 0; };
+  const safeImage = value => { const v=String(value||'').trim(); if(!v)return '';
+    // Accept absolute URLs (http/https), /uploads/ paths, and protocol-relative URLs.
+    if(/^https?:\/\//i.test(v)||/^\/uploads\//.test(v)||/^\/\//.test(v))return v;
+    // If it looks like a domain with an extension, treat as https://
+    if(/^[a-zA-Z0-9][-a-zA-Z0-9.]*\.[a-zA-Z]{2,}(\/|$)/.test(v))return 'https://'+v;
+    return ''; };
+  const isLoggedIn = () => Boolean(state.token);
+  const isAdmin = () => state.role === 'ADMIN';
+  const isSeller = () => state.role === 'SELLER' && state.seller?.status === 'APPROVED';
+  const isBuyer = () => state.role === 'BUYER';
 
-  // ==================== DOM HELPERS ====================
-  const $ = (id) => document.getElementById(id);
-
-  function showToast(message, type = 'info') {
-    const container = $('toastContainer');
-    if (!container) return;
-    const toast = document.createElement('div');
-    toast.className = `toast toast-${type}`;
-    toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(() => {
-      toast.remove();
-    }, 4200);
-  }
-
-  function escapeHtml(value) {
-    if (value === null || value === undefined) return '';
-    return String(value)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-
-  function formatCurrency(amount) {
-    const num = Number(amount || 0);
-    return '$' + num.toFixed(2);
-  }
-
-  function formatDate(isoStr) {
-    if (!isoStr) return '—';
-    const d = new Date(isoStr);
-    if (Number.isNaN(d.getTime())) return escapeHtml(isoStr);
-    return d.toLocaleString();
-  }
-
-  // ==================== API FETCH WRAPPER ====================
-  async function apiFetch(path, options = {}) {
-    const headers = new Headers(options.headers || {});
-    if (state.token) {
-      headers.set('Authorization', `Bearer ${state.token}`);
-    }
-    if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
-      headers.set('Content-Type', 'application/json');
-      options.body = JSON.stringify(options.body);
-    }
-
-    const response = await fetch(path, {
-      ...options,
-      headers
-    });
-
-    const rawText = await response.text();
-    let data = rawText;
-    if (rawText) {
-      try {
-        data = JSON.parse(rawText);
-      } catch {
-        data = rawText;
+  function toast(message, type='info') {
+    const node=document.createElement('div');
+    node.className='toast '+type;
+    node.textContent=String(message || 'Something went wrong');
+    // Native <dialog> elements live in the browser's top layer. A toast placed in
+    // <body>, regardless of z-index, appears BEHIND an open modal dialog.
+    const activeDialog=Array.from(document.querySelectorAll('dialog[open]')).at(-1);
+    let host=el('toastStack');
+    if(activeDialog){
+      host=activeDialog.querySelector('.dialog-toast-stack');
+      if(!host){
+        host=document.createElement('div');
+        host.className='dialog-toast-stack';
+        host.setAttribute('role','status');
+        host.setAttribute('aria-live','polite');
+        activeDialog.appendChild(host);
       }
+    }
+    host.appendChild(node);
+    window.setTimeout(()=>node.remove(),4600);
+  }
+
+  function showLoginError(message){
+    const box=el('loginError');
+    box.textContent=message;
+    box.classList.remove('hidden');
+    el('loginPassword').setAttribute('aria-invalid','true');
+  }
+  function clearLoginError(){
+    el('loginError').textContent='';
+    el('loginError').classList.add('hidden');
+    el('loginPassword').removeAttribute('aria-invalid');
+  }
+
+  function renderEmailVerification(){
+    const verified=state.emailVerified===true;
+    const checking=state.emailStatusLoading && state.emailVerified===null;
+    el('emailVerifiedBadge').classList.toggle('hidden',!verified);
+    el('emailVerificationLoading').classList.toggle('hidden',!checking);
+    el('emailVerificationControls').classList.toggle('hidden',verified || checking);
+    updateOtpButtons();
+  }
+
+  // Per-email, per-purpose UX cooldown. Server-side throttling is still needed
+  // to prevent abuse from multiple devices or modified clients.
+  function otpCooldownKey(purpose,email){
+    return `shopsphere_otp_cooldown_${purpose}_${String(email||'').trim().toLowerCase()}`;
+  }
+  function otpSecondsRemaining(purpose,email){
+    if(!email)return 0;
+    try{
+      const timestamp=Number(localStorage.getItem(otpCooldownKey(purpose,email))||0);
+      const remaining=Math.max(0,Math.ceil((timestamp-Date.now())/1000));
+      if(!remaining && timestamp)localStorage.removeItem(otpCooldownKey(purpose,email));
+      return remaining;
+    }catch{return 0;}
+  }
+  function startOtpCooldown(purpose,email){
+    try{localStorage.setItem(otpCooldownKey(purpose,email),String(Date.now()+OTP_COOLDOWN_MS));}
+    catch{ /* Local storage may be unavailable; in-flight protection still works. */ }
+    updateOtpButtons();
+  }
+  function updateOtpButtons(){
+    const definitions=[
+      {id:'sendEmailOtpBtn',purpose:'verify',email:state.email,busy:state.emailOtpSending,label:'Send code'},
+      {id:'requestResetBtn',purpose:'reset',email:el('resetEmail').value.trim(),busy:state.resetOtpSending,label:'Send recovery code'}
+    ];
+    for(const def of definitions){
+      const button=el(def.id);
+      const remaining=otpSecondsRemaining(def.purpose,def.email);
+      button.disabled=def.busy || remaining>0 || (def.purpose==='verify' && state.emailVerified===true);
+      if(def.busy){
+        button.innerHTML='<span class="otp-hourglass" aria-hidden="true">⏳</span> Sending code…';
+        button.setAttribute('aria-label','Sending verification code');
+      }else if(remaining>0){
+        button.innerHTML=`<span class="otp-hourglass" aria-hidden="true">⏳</span> Resend in ${remaining}s`;
+        button.setAttribute('aria-label',`You can request another code in ${remaining} seconds`);
+      }else{
+        button.textContent=def.label;
+        button.removeAttribute('aria-label');
+      }
+    }
+  }
+
+  async function refreshEmailStatus(){
+    if(!state.token)return;
+    const currentToken=state.token;
+    const requestId=++state.emailStatusRequest;
+    state.emailStatusLoading=true;
+    renderEmailVerification();
+    try{
+      // Backend response contract: GET /api/user/email-status -> {emailVerified:true|false}.
+      const result=await api(EMAIL_STATUS_PATH);
+      if(currentToken!==state.token || requestId!==state.emailStatusRequest)return;
+      const verified=typeof result==='boolean' ? result : result?.emailVerified;
+      if(typeof verified!=='boolean')throw new Error('Unexpected email status response');
+      state.emailVerified=verified;
+    }catch(err){
+      if(currentToken!==state.token || requestId!==state.emailStatusRequest)return;
+      // Gracefully retain verification UI until the user adds this backend endpoint.
+      if(err.status!==404)console.info('Could not refresh email verification status:',err.message);
+    }finally{
+      if(currentToken===state.token && requestId===state.emailStatusRequest){
+        state.emailStatusLoading=false;
+        renderEmailVerification();
+      }
+    }
+  }
+
+  async function sendVerificationOtp(){
+    if(!isLoggedIn() || state.emailVerified===true || state.emailOtpSending)return;
+    const email=state.email;
+    if(otpSecondsRemaining('verify',email)>0)return;
+    state.emailOtpSending=true;
+    updateOtpButtons();
+    try{
+      await api('/user/email-verification');
+      startOtpCooldown('verify',email);
+      toast('Verification code sent. Check your inbox.','success');
+    }catch(err){
+      if(err.status===429)startOtpCooldown('verify',email);
+      toast(err.message,'error');
+    }finally{
+      state.emailOtpSending=false;
+      updateOtpButtons();
+    }
+  }
+
+  async function verifyEmailOtp(){
+    const otp=el('emailOtp').value.trim();
+    if(state.emailVerified===true)return;
+    if(!/^\d{8}$/.test(otp)){toast('Enter the 8-digit code from your email.','info');return;}
+    const button=el('verifyEmailOtpBtn');
+    button.disabled=true;
+    try{
+      await api('/user/verify-otp',{method:'POST',body:{otp}});
+      ++state.emailStatusRequest; // Discard any older status request.
+      state.emailStatusLoading=false;
+      state.emailVerified=true;
+      el('emailOtp').value='';
+      renderEmailVerification();
+      toast('Your email has been verified!','success');
+    }catch(err){toast(err.message,'error');}
+    finally{button.disabled=false;}
+  }
+  const status = (label) => `<span class="status-badge ${esc(String(label).toLowerCase())}">${esc(String(label||'').replaceAll('_',' '))}</span>`;
+  const empty = (title,detail='',action='') => `<div class="empty-state"><span class="empty-icon">✳</span><h3>${esc(title)}</h3><p>${esc(detail)}</p>${action}</div>`;
+  const imageFor = (p, css='') => safeImage(p?.imageUrl||p?.productImageUrl) ? `<img ${css} src="${safeImage(p?.imageUrl||p?.productImageUrl)}" alt="${esc(p?.name||p?.productName||'Product')}" loading="lazy">` : `<div class="media-fallback" aria-hidden="true">${categoryIcon(p?.category)}</div>`;
+
+  class ApiError extends Error { constructor(message,code,body) { super(message); this.status=code; this.body=body; } }
+  async function api(path, {method='GET',body,auth=true}={}) {
+    const headers={Accept:'application/json'};
+    if (body !== undefined) headers['Content-Type']='application/json';
+    if (auth && state.token) headers.Authorization=`Bearer ${state.token}`;
+    let res;
+    try { res=await fetch(`${API}${path}`,{method,headers,body:body===undefined?undefined:JSON.stringify(body)}); }
+    catch { throw new ApiError('Cannot reach the store right now. Check that Spring Boot is running.',0,null); }
+    const raw=await res.text();let value=raw;
+    try { value=raw ? JSON.parse(raw) : null; } catch {}
+    if (!res.ok) {
+      let message=typeof value==='object' && value ? (value.message || value.detail || value.error || value.title) : raw;
+      message=(String(message||`Request failed (${res.status})`)).replace(/<[^>]*>/g,'').slice(0,250);
+      throw new ApiError(message,res.status,value);
+    }
+    return value;
+  }
+  function jwtEmail(token) {
+    try { const part=token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'); const payload=JSON.parse(atob(part.padEnd(Math.ceil(part.length/4)*4,'='))); return payload.sub || ''; }
+    catch { return ''; }
+  }
+  function setSession(token) {
+    state.token=token||''; state.email=token?jwtEmail(token):'';
+    if (token) localStorage.setItem(TOKEN_KEY,token); else localStorage.removeItem(TOKEN_KEY);
+    ++state.emailStatusRequest;
+    state.emailVerified=null; state.emailStatusLoading=false; state.emailOtpSending=false;
+    if (!token){state.role='GUEST';state.seller=null;state.cart=null;state.addresses=[];state.adminsChecked=false;state.profile=null;}
+    updateIdentity();
+    renderEmailVerification();
+  }
+  function updateIdentity() {
+    el('accountLabel').textContent=isLoggedIn()?state.email.split('@')[0]||'My account':'Sign in';
+    el('accountAvatar').textContent=isLoggedIn()?(state.email[0]||'S').toUpperCase():'↗';
+    el('profileEmail').textContent=state.email||'Welcome to ShopSphere';
+    el('profileName').textContent=isLoggedIn()?state.email.split('@')[0]||'My account':'Your account';
+    el('profileAvatar').textContent=isLoggedIn()?(state.email[0]||'S').toUpperCase():'S';
+    el('profileRole').textContent=({ADMIN:'Administrator',SELLER:'Seller',BUYER:'Customer',GUEST:'Guest'})[state.role]||'Customer';
+    el('adminNav').classList.toggle('hidden',!isAdmin());
+    el('sellerNav').classList.toggle('hidden',!isSeller());
+    el('accountAddressPanel').classList.toggle('hidden',!isBuyer());
+    el('sellerApplicationPanel').classList.toggle('hidden',!isBuyer() && !isSeller());
+    el('ordersHeaderBtn').classList.toggle('hidden',!isBuyer());
+    el('cartCount').textContent=String(state.cart?.totalItems||0);
+  }
+  async function hydrateSession() {
+    if (!state.token) {setSession(''); return;}
+    const validPattern=/^[\w-]+\.[\w-]+\.[\w-]+$/;
+    if (!validPattern.test(state.token)){setSession('');return;}
+    // /cart is an authenticated endpoint. The existing backend does not yet expose /user/me.
+    try {state.cart=await api('/cart');}
+    catch(e){if(e.status===401){setSession('');toast('Your session expired. Please sign in again.','info');return;} console.warn('Cart unavailable during sign-in check',e);}
+    state.email=jwtEmail(state.token);
+    state.role='BUYER';
+    try {
+      // Only actual administrators can call this protected endpoint.
+      const pending=await api('/admin/sellers/pending');
+      if (Array.isArray(pending)) {state.role='ADMIN';state.adminsChecked=true;}
+    } catch(e) {if(e.status!==403 && e.status!==401)console.info('Admin role probe unavailable',e.message);}
+    if (state.role!=='ADMIN') {
+      try {const seller=await api('/seller/me');if(seller){state.seller=seller; if(seller.status==='APPROVED')state.role='SELLER';}}
+      catch(e){if(e.status!==404 && e.status!==403)console.info('Seller status unavailable',e.message);}
+    }
+    updateIdentity();
+    await refreshEmailStatus();
+  }
+
+  function openAuth(tab='login') {
+    setAuthTab(tab);
+    if(!el('authDialog').open)el('authDialog').showModal();
+  }
+  function setAuthTab(tab) {
+    clearLoginError();
+    document.querySelectorAll('[data-auth-tab]').forEach(btn=>btn.classList.toggle('active',btn.dataset.authTab===tab));
+    document.querySelectorAll('[data-auth-panel]').forEach(form=>form.classList.toggle('hidden',form.dataset.authPanel!==tab));
+  }
+  function closeDialog(id) {const dlg=el(id); if(dlg?.open)dlg.close();}
+  function requireAuth(){if(!isLoggedIn()){openAuth();toast('Sign in to continue','info');return false;}return true;}
+  function pageName(hash=window.location.hash) {const path=hash.replace(/^#\/?/,'').split(/[?\/]/)[0].trim();return ROUTES.has(path)?path:'home';}
+  function route(page) {
+    if (!ROUTES.has(page))page='home';
+    if (['cart','checkout','orders','account','seller','admin'].includes(page) && !requireAuth())return;
+    if (page==='admin'&&!isAdmin()){toast('This page is for administrators only.','error');return;}
+    if (page==='seller'&&!isSeller()){toast('Seller Studio is available after admin approval.','error');return;}
+    if (window.location.hash!==`#/${page}`)window.location.hash=`#/${page}`;
+    else renderRoute();
+  }
+  function renderRoute(){
+    let page=pageName();
+    if(['cart','checkout','orders','account','seller','admin'].includes(page)&&!isLoggedIn())page='home';
+    if(page==='admin'&&!isAdmin())page='home';
+    if(page==='seller'&&!isSeller())page='home';
+    state.currentRoute=page;
+    document.querySelectorAll('.page').forEach(node=>node.classList.toggle('active',node.id===`page-${page}`));
+    document.querySelectorAll('[data-route].nav-link').forEach(node=>node.classList.toggle('selected',node.dataset.route===page));
+    closeCategoryDropdown();
+    el('searchSuggestions').classList.add('hidden');
+    window.scrollTo({top:0,behavior:'instant'});
+    if(page==='home')renderHome();
+    if(page==='shop')renderCatalog();
+    if(page==='deals')renderDeals();
+    if(page==='cart')loadCart();
+    if(page==='checkout')prepareCheckout();
+    if(page==='orders')loadOrders(0);
+    if(page==='account')loadAccount();
+    if(page==='seller')renderSeller();
+    if(page==='admin')loadAdmin();
+  }
+  function renderCategories() {
+    const main=CATEGORIES.slice(0,6);
+    el('categoryTiles').innerHTML=main.map(c=>`<button class="category-tile" data-category="${c[0]}"><span class="category-symbol">${c[2]}</span><strong>${esc(c[1])}</strong></button>`).join('');
+    el('dropdownCategories').innerHTML=CATEGORIES.map(c=>`<button type="button" data-category="${c[0]}"><span>${c[2]}</span>${esc(c[1])}</button>`).join('');
+    for(const select of [el('filterCategory'),el('pCategory')]){
+      select.insertAdjacentHTML('beforeend',CATEGORIES.map(c=>`<option value="${c[0]}">${esc(c[1])}</option>`).join(''));
+    }
+    el('footerYear').textContent=new Date().getFullYear();
+  }
+  function closeCategoryDropdown(){el('categoryDropdown').classList.add('hidden');el('categoryToggle').setAttribute('aria-expanded','false');}
+  function selectCategory(category){state.category=category;state.catalogPage=0;el('filterCategory').value=category;state.catalogQuery='';el('globalSearch').value='';closeCategoryDropdown();route('shop');}
+  async function loadProducts(query='') {
+    const value=await api(`/product/search?keyword=${encodeURIComponent(query)}`,{auth:false});
+    if(!Array.isArray(value))throw new Error('Unexpected product list');
+    state.products=value;
+    renderHome();renderDeals();renderCatalog();
+    if(isSeller())renderSeller();
+    if(isAdmin())renderAdminProductSelect();
+    return value;
+  }
+  function card(p) {
+    const available=inStock(p),off=discountOf(p);
+    return `<article class="product-card" data-product-id="${esc(p.id)}"><button class="product-media" type="button" data-open-product="${esc(p.id)}" aria-label="View ${esc(p.name)}" style="border:0;padding:0;width:100%;cursor:pointer">
+      ${imageFor(p)}${off>0?`<span class="sale-tag">${off}% OFF</span>`:''}</button>
+      <div class="product-card-body"><span class="product-brand">${esc(p.brand||labelFor(p.category))}</span><button type="button" data-open-product="${esc(p.id)}" class="product-name" style="border:0;background:none;padding:0;text-align:left;cursor:pointer">${esc(p.name)}</button>
+      <div class="product-meta"><span class="rating">★ ${Number(p.averageRating||0).toFixed(1)} <small>(${Number(p.reviewCount||0)})</small></span><span class="stock-pill ${available?'':'out'}">${available?'In stock':'Unavailable'}</span></div>
+      <div class="product-pricing"><strong>${money(p.price)}</strong>${off>0?`<del>${money(p.compareAtPrice)}</del><span class="discount">-${off}%</span>`:''}</div>
+      <div class="product-actions"><button class="btn primary" type="button" data-add-cart="${esc(p.id)}" ${available?'':'disabled'}>＋ Add to cart</button><button class="btn outline" type="button" data-open-product="${esc(p.id)}" aria-label="View details">↗</button></div></div></article>`;
+  }
+  function renderHome(){
+    const products=[...state.products].filter(p=>p.status==='AVAILABLE'&&inStock(p)).sort((a,b)=>discountOf(b)-discountOf(a) || Number(b.averageRating||0)-Number(a.averageRating||0) || String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+    el('featuredGrid').innerHTML=products.length?products.slice(0,5).map(card).join(''):empty('Your next favorite will appear here','There are no available products yet. Come back once sellers add listings.','<button class="btn outline" data-route="shop">View catalog</button>');
+    // The spotlight promotes the largest *real* markdown, only if the backend returned compareAtPrice.
+    const spotlight=el('dealSpotlight');
+    const topDeal=products.find(p=>discountOf(p)>0);
+    const kicker=spotlight.querySelector('.promo-kicker'),title=spotlight.querySelector('h2'),desc=spotlight.querySelector('p'),cta=spotlight.querySelector('button');
+    if(topDeal){
+      kicker.textContent='THE BEST VERIFIED SAVING';
+      title.textContent=`Save ${discountOf(topDeal)}% on a great find.`;
+      desc.textContent=topDeal.name;
+      cta.removeAttribute('data-category');cta.dataset.openProduct=topDeal.id;cta.innerHTML='Explore this offer <span>↗</span>';
     } else {
-      data = null;
+      kicker.textContent='YOUR STYLE, REIMAGINED';title.innerHTML='Good things.<br>Better days.';
+      desc.textContent='Explore little upgrades for everyday life.';
+      cta.removeAttribute('data-open-product');cta.dataset.category='CLOTHING';cta.innerHTML='Explore style <span>↗</span>';
     }
 
-    if (!response.ok) {
-      let errMsg = `HTTP ${response.status}`;
-      if (data && typeof data === 'object') {
-        errMsg = data.message || data.error || JSON.stringify(data);
-      } else if (typeof data === 'string' && data.trim()) {
-        errMsg = data;
-      }
-      if (response.status === 401 || response.status === 403) {
-        if (!state.token) {
-          errMsg = 'Please sign in first to perform this action.';
-        } else if (errMsg === `HTTP ${response.status}`) {
-          errMsg = response.status === 403
-            ? 'Access forbidden (403): Your current role does not have permission for this endpoint.'
-            : 'Session expired or unauthorized (401). Please sign in again.';
-        }
-      }
-      throw new Error(errMsg);
-    }
-
-    return data;
   }
-
-  // ==================== TAB NAVIGATION ====================
-  function switchTab(tabName) {
-    document.querySelectorAll('.nav-tab[data-tab]').forEach((btn) => {
-      btn.classList.toggle('active', btn.dataset.tab === tabName);
-    });
-    document.querySelectorAll('.tab-panel').forEach((panel) => {
-      panel.classList.toggle('active', panel.id === `tab-${tabName}`);
-    });
-
-    if (tabName === 'shop') {
-      loadProducts($('globalSearchInput').value.trim());
-    } else if (tabName === 'cart' && state.token) {
-      loadCart();
-    } else if (tabName === 'orders' && state.token) {
-      loadOrders();
-    } else if (tabName === 'account' && state.token) {
-      fetchSessionDebug();
-      loadAddresses();
-    } else if (tabName === 'seller') {
-      renderSellerProductsTable();
-    }
+  function applyFilters() {
+    let list=state.products.filter(p=>p.status!=='SUSPENDED');
+    if(state.catalogQuery){const q=state.catalogQuery.toLowerCase().trim();list=list.filter(p=>[p.name,p.brand,p.description].some(x=>String(x||'').toLowerCase().includes(q)));}
+    const category=el('filterCategory').value;
+    if(category)list=list.filter(p=>p.category===category);
+    if(el('filterInStock').checked)list=list.filter(inStock);
+    const cap=Number(el('filterMaxPrice').value);if(el('filterMaxPrice').value.trim())list=list.filter(p=>Number(p.price)<=cap);
+    const sort=el('filterSort').value;
+    if(sort==='price-asc')list.sort((a,b)=>Number(a.price)-Number(b.price));
+    if(sort==='price-desc')list.sort((a,b)=>Number(b.price)-Number(a.price));
+    if(sort==='rating')list.sort((a,b)=>Number(b.averageRating||0)-Number(a.averageRating||0));
+    if(sort==='name')list.sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+    if(sort==='newest')list.sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+    return list;
   }
-
-  // ==================== SESSION & AUTH ====================
-  function setToken(token) {
-    state.token = token;
-    if (token) {
-      localStorage.setItem('ecommerce_jwt', token);
-    } else {
-      localStorage.removeItem('ecommerce_jwt');
-      state.user = null;
-    }
-    updateAuthUI();
+  function pageButtons(container,total,page,onClickName){
+    const pages=Math.max(1,Math.ceil(total/12));if(pages<=1){container.innerHTML='';return;}
+    const items=[`<button class="page-button" data-${onClickName}="${page-1}" ${page===0?'disabled':''}>← Previous</button>`];
+    for(let i=0;i<pages;i++){if(i>=page-2&&i<=page+2)items.push(`<button class="page-button ${i===page?'current':''}" data-${onClickName}="${i}">${i+1}</button>`);}
+    items.push(`<button class="page-button" data-${onClickName}="${page+1}" ${page>=pages-1?'disabled':''}>Next →</button>`);container.innerHTML=items.join('');
   }
-
-  function updateAuthUI() {
-    const isLoggedIn = Boolean(state.token);
-    $('openAuthModalBtn').classList.toggle('hidden', isLoggedIn);
-    $('logoutBtn').classList.toggle('hidden', !isLoggedIn);
-    $('userBadge').classList.toggle('hidden', !isLoggedIn);
-
-    if (isLoggedIn && state.user) {
-      $('userEmailDisplay').textContent = state.user.username || 'Signed In';
-      const roleStr = (state.user.authorities || [])
-        .map((r) => r.replace(/^ROLE_/, ''))
-        .join(', ') || 'USER';
-      $('userRoleBadge').textContent = roleStr;
-
-      $('sessionDebugBox').innerHTML = `
-        <div class="summary-line"><span>Authenticated Email:</span> <strong>${escapeHtml(state.user.username)}</strong></div>
-        <div class="summary-line"><span>Granted Authorities:</span> <span class="badge badge-role">${escapeHtml((state.user.authorities || []).join(', '))}</span></div>
-        <div class="summary-line"><span>JWT Token Status:</span> <span class="badge badge-success">Active</span></div>
-      `;
-    } else if (!isLoggedIn) {
-      $('cartCountBadge').textContent = '0';
-      $('sessionDebugBox').innerHTML = `<p class="text-muted">Not signed in. Click "Sign In / Register" in the top bar.</p>`;
-    }
+  function renderCatalog() {
+    const list=applyFilters(),size=12;const page=Math.max(0,Math.min(state.catalogPage,Math.max(0,Math.ceil(list.length/size)-1)));state.catalogPage=page;
+    el('catalogCount').textContent=`${list.length} products found`;
+    el('catalogQueryLabel').textContent=state.catalogQuery?`Search: “${state.catalogQuery}”`:'';
+    el('catalogGrid').innerHTML=list.length?list.slice(page*size,(page+1)*size).map(card).join(''):empty('No matching products','Try a different category, price, or search term.','<button class="btn outline" id="emptyClearFilters">Clear filters</button>');
+    pageButtons(el('catalogPagination'),list.length,page,'catalog-page');
   }
-
-  async function fetchSessionDebug() {
-    if (!state.token) {
-      updateAuthUI();
-      return;
-    }
+  function renderDeals() {
+    const available=state.products.filter(inStock);
+    const discounted=available.filter(p=>discountOf(p)>0).sort((a,b)=>discountOf(b)-discountOf(a));
+    const items=discounted.length?discounted:available.sort((a,b)=>Number(b.averageRating||0)-Number(a.averageRating||0)).slice(0,10);
+    el('dealsDescription').textContent=discounted.length?'Shop products with actual seller-provided original prices and visible savings.':'Explore popular and highly rated products. Verified discounts will appear here when sellers provide original prices.';
+    el('dealsGrid').innerHTML=items.length?items.map(card).join(''):empty('Special finds are coming','There are no available products in the store yet.');
+  }
+  async function showProduct(id) {
     try {
-      const info = await apiFetch('/api/product/debug');
-      state.user = info;
-      updateAuthUI();
-    } catch (err) {
-      console.warn('Session check failed:', err.message);
-      setToken(null);
-    }
+      // The detailed endpoint returns reviews, unlike the product search endpoint.
+      const p=await api(`/products/${encodeURIComponent(id)}`,{auth:false}),off=discountOf(p),avail=inStock(p);
+      el('productDetailBody').innerHTML=`<div class="product-detail"><div class="product-detail-image">${imageFor(p)}</div><div><span class="eyebrow">${esc(labelFor(p.category))} · ${esc(p.brand)}</span><h2>${esc(p.name)}</h2><div class="product-meta"><span class="rating">★ ${Number(p.averageRating||0).toFixed(1)} <small>(${Number(p.reviewCount||0)} reviews)</small></span>${status(p.status||'AVAILABLE')}</div><div class="product-pricing"><strong>${money(p.price)}</strong>${off>0?`<del>${money(p.compareAtPrice)}</del><span class="discount">Save ${off}%</span>`:''}</div><p>${esc(p.description||'')}</p><p>${avail?`${Number(p.stockQuantity)} available`:'Currently unavailable'}</p><button type="button" class="btn primary full" ${avail?'':'disabled'} data-add-cart="${esc(p.id)}">＋ Add to cart</button>${p.reviews?.length?`<div class="product-reviews"><h3>What customers are saying</h3>${p.reviews.slice(0,8).map(r=>`<div class="review-line"><strong>${esc(r.userFirstName||'Customer')} · ★ ${esc(r.rating)}</strong><div>${esc(r.comment||'')}</div></div>`).join('')}</div>`:''}</div></div>`;
+      el('productDialog').showModal();
+    } catch(e) {toast(e.message,'error');}
   }
 
-  // ==================== STOREFRONT & PRODUCTS ====================
-  function populateCategorySelects() {
-    const filterSelect = $('categoryFilterSelect');
-    const sellerSelect = $('prodCategory');
-    CATEGORIES.forEach((cat) => {
-      const label = cat.replace(/_/g, ' ');
-      const opt1 = document.createElement('option');
-      opt1.value = cat;
-      opt1.textContent = label;
-      filterSelect.appendChild(opt1);
-
-      const opt2 = document.createElement('option');
-      opt2.value = cat;
-      opt2.textContent = label;
-      sellerSelect.appendChild(opt2);
-    });
+  // Shopping cart and checkout — all writes go to the real backend.
+  async function addToCart(id) {
+    if(!requireAuth())return;
+    if(!isBuyer()){toast('Shopping cart checkout is currently available to buyer accounts.','info');return;}
+    try {state.cart=await api('/cart',{method:'POST',body:{productId:id,quantity:1}});updateIdentity();toast('Added to your cart ✦','success');if(state.currentRoute==='cart')renderCart();}
+    catch(e){toast(e.message,'error');}
   }
-
-  async function loadProducts(keyword = '') {
-    const grid = $('productsGrid');
-    try {
-      const data = await apiFetch(`/api/product/search?keyword=${encodeURIComponent(keyword)}`);
-      state.products = Array.isArray(data) ? data : [];
-      renderProductsGrid();
-      renderSellerProductsTable();
-    } catch (err) {
-      grid.innerHTML = `<div class="empty-state">Unable to load products: ${escapeHtml(err.message)}</div>`;
-    }
-  }
-
-  function renderProductsGrid() {
-    const grid = $('productsGrid');
-    const catFilter = $('categoryFilterSelect').value;
-    const statusFilter = $('statusFilterSelect').value;
-    const sortBy = $('sortProductsSelect').value;
-
-    let filtered = state.products.filter((p) => {
-      if (catFilter !== 'ALL' && p.category !== catFilter) return false;
-      if (statusFilter !== 'ALL' && p.status !== statusFilter) return false;
-      return true;
-    });
-
-    filtered.sort((a, b) => {
-      if (sortBy === 'price-asc') return Number(a.price) - Number(b.price);
-      if (sortBy === 'price-desc') return Number(b.price) - Number(a.price);
-      if (sortBy === 'rating-desc') return Number(b.averageRating || 0) - Number(a.averageRating || 0);
-      return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
-    });
-
-    $('productCountLabel').textContent = `${filtered.length} product${filtered.length === 1 ? '' : 's'}`;
-
-    if (filtered.length === 0) {
-      grid.innerHTML = `<div class="empty-state">No products match your current filter. If you are a Seller, head to <strong>Seller Studio</strong> to add products!</div>`;
-      return;
-    }
-
-    grid.innerHTML = filtered
-      .map((p) => {
-        const statusClass =
-          p.status === 'AVAILABLE'
-            ? 'badge-success'
-            : p.status === 'SUSPENDED'
-            ? 'badge-danger'
-            : 'badge-warning';
-        const avg = Number(p.averageRating || 0).toFixed(1);
-        const revCount = Number(p.reviewCount || 0);
-        const canAdd = p.status === 'AVAILABLE' && p.stockQuantity > 0;
-
-        return `
-          <article class="product-card">
-            <div class="product-img-wrap">
-              <img src="${escapeHtml(p.imageUrl || FALLBACK_IMG)}" alt="${escapeHtml(p.name)}" loading="lazy" onerror="this.src='${FALLBACK_IMG}'" />
-              <span class="badge ${statusClass} product-status-pill">${escapeHtml(p.status)}</span>
-              <span class="product-category-pill">${escapeHtml((p.category || '').replace(/_/g, ' '))}</span>
-            </div>
-            <div class="product-body">
-              <div class="product-brand">${escapeHtml(p.brand)}</div>
-              <h3 class="product-title">${escapeHtml(p.name)}</h3>
-              <p class="product-desc">${escapeHtml(p.description)}</p>
-              <div class="product-meta-row">
-                <span class="product-price">${formatCurrency(p.price)}</span>
-                <span class="product-rating">★ ${avg} <small>(${revCount})</small></span>
-              </div>
-              <div class="product-stock-info">Stock: <strong>${p.stockQuantity}</strong> • ID: <code>${escapeHtml(String(p.id).slice(0, 8))}…</code></div>
-              <div class="product-actions">
-                <button type="button" class="btn btn-outline btn-sm" style="flex:1" data-inspect-product="${escapeHtml(p.id)}">Details &amp; Reviews</button>
-                <button type="button" class="btn btn-primary btn-sm" style="flex:1" data-add-cart="${escapeHtml(p.id)}" ${!canAdd ? 'disabled' : ''}>
-                  ${canAdd ? '+ Add to Cart' : 'Unavailable'}
-                </button>
-              </div>
-            </div>
-          </article>
-        `;
-      })
-      .join('');
-  }
-
-  async function inspectProductDetail(productId) {
-    try {
-      const p = await apiFetch(`/api/products/${encodeURIComponent(productId)}`);
-      $('modalProductTitle').textContent = p.name;
-      const reviews = Array.isArray(p.reviews) ? p.reviews : [];
-
-      $('modalProductBody').innerHTML = `
-        <div class="two-col-layout">
-          <div>
-            <img src="${escapeHtml(p.imageUrl || FALLBACK_IMG)}" alt="${escapeHtml(p.name)}" style="width:100%;max-height:260px;object-fit:cover;border-radius:8px;" onerror="this.src='${FALLBACK_IMG}'" />
-            <div class="mt-sm small text-muted">
-              <div><strong>Product UUID:</strong> <code>${escapeHtml(p.id)}</code></div>
-              <div><strong>Seller UUID:</strong> <code>${escapeHtml(p.sellerId)}</code></div>
-              <div><strong>Created:</strong> ${formatDate(p.createdAt)}</div>
-            </div>
-          </div>
-          <div>
-            <span class="badge badge-role">${escapeHtml(p.category)}</span>
-            <span class="badge ${p.status === 'AVAILABLE' ? 'badge-success' : 'badge-danger'}">${escapeHtml(p.status)}</span>
-            <h2 style="margin:0.5rem 0 0.25rem">${escapeHtml(p.name)}</h2>
-            <div class="text-muted small">Brand: <strong>${escapeHtml(p.brand)}</strong></div>
-            <div class="product-price" style="margin:0.65rem 0">${formatCurrency(p.price)}</div>
-            <p>${escapeHtml(p.description)}</p>
-            <div class="summary-line"><span>Stock Quantity:</span> <strong>${p.stockQuantity}</strong></div>
-            <div class="summary-line"><span>Average Rating:</span> <strong>★ ${Number(p.averageRating || 0).toFixed(2)} (${Number(p.reviewCount || 0)} reviews)</strong></div>
-            <div class="product-actions mt-md">
-              <button type="button" class="btn btn-primary btn-sm" id="modalAddToCartBtn" ${p.status !== 'AVAILABLE' || p.stockQuantity <= 0 ? 'disabled' : ''}>🛒 Add to Cart</button>
-              <button type="button" class="btn btn-outline btn-sm" id="modalPreFillSuspendBtn">🛡️ Send to Admin Suspend</button>
-            </div>
-          </div>
-        </div>
-        <hr class="divider" />
-        <h4>Customer Reviews (${reviews.length})</h4>
-        ${
-          reviews.length === 0
-            ? '<p class="text-muted small">No reviews yet. Customers can review items from delivered orders.</p>'
-            : `<div class="orders-list">${reviews
-                .map(
-                  (r) => `
-                <div class="order-item-line">
-                  <div>
-                    <strong>${escapeHtml(r.userFirstName || 'Buyer')} ${escapeHtml(r.userLastName || '')}</strong>
-                    <span class="product-rating" style="margin-left:0.5rem">${'★'.repeat(r.rating)}${'☆'.repeat(Math.max(0, 5 - r.rating))}</span>
-                    <div class="small">${escapeHtml(r.comment)}</div>
-                  </div>
-                  <span class="small text-muted">${formatDate(r.createdAt)}</span>
-                </div>
-              `
-                )
-                .join('')}</div>`
-        }
-      `;
-
-      $('productDetailDialog').showModal();
-
-      const modalAddBtn = $('modalAddToCartBtn');
-      if (modalAddBtn) {
-        modalAddBtn.onclick = () => {
-          addToCart(p.id, 1);
-          $('productDetailDialog').close();
-        };
-      }
-      const modalSuspendBtn = $('modalPreFillSuspendBtn');
-      if (modalSuspendBtn) {
-        modalSuspendBtn.onclick = () => {
-          $('productDetailDialog').close();
-          $('suspendProductIdInput').value = p.id;
-          if (p.sellerId) $('suspendSellerIdInput').value = p.sellerId;
-          switchTab('admin');
-          showToast('Pre-filled Product & Seller UUIDs in Admin Console', 'info');
-        };
-      }
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  }
-
-  // ==================== SHOPPING CART & CHECKOUT ====================
   async function loadCart() {
-    if (!state.token) {
-      $('cartItemsContainer').innerHTML = `<div class="empty-state">Sign in to view and manage your cart.</div>`;
-      return;
-    }
-    try {
-      const cart = await apiFetch('/api/cart');
-      state.cart = cart;
-      renderCart();
-    } catch (err) {
-      $('cartItemsContainer').innerHTML = `<div class="empty-state">Could not load cart: ${escapeHtml(err.message)}</div>`;
-    }
+    if(!isLoggedIn())return;
+    el('cartItems').innerHTML=empty('Loading your cart…');
+    try {state.cart=await api('/cart');updateIdentity();renderCart();}
+    catch(e){el('cartItems').innerHTML=empty('Could not load your cart',e.message);el('cartSummary').innerHTML='';}
   }
-
+  function cartItems() {return Array.isArray(state.cart?.items)?state.cart.items:[];}
   function renderCart() {
-    const cart = state.cart;
-    const items = cart && Array.isArray(cart.items) ? cart.items : [];
-    const totalItems = cart ? Number(cart.totalItems || 0) : 0;
-    const subtotal = cart ? Number(cart.total || 0) : 0;
-
-    $('cartCountBadge').textContent = String(totalItems);
-    $('cartTotalItemsLabel').textContent = `${totalItems} item${totalItems === 1 ? '' : 's'}`;
-    updateCheckoutTotals(subtotal);
-
-    const container = $('cartItemsContainer');
-    if (items.length === 0) {
-      container.innerHTML = `<div class="empty-state">Your cart is empty. Browse the Storefront and click "+ Add to Cart"!</div>`;
-      return;
-    }
-
-    container.innerHTML = items
-      .map(
-        (item) => `
-      <div class="cart-item-row">
-        <div class="cart-item-info">
-          <img class="cart-item-thumb" src="${escapeHtml(item.productImageUrl || FALLBACK_IMG)}" alt="${escapeHtml(item.productName)}" onerror="this.src='${FALLBACK_IMG}'" />
-          <div>
-            <strong>${escapeHtml(item.productName)}</strong>
-            <div class="small text-muted">${formatCurrency(item.price)} each • Subtotal: <strong>${formatCurrency(item.subtotal)}</strong></div>
-          </div>
-        </div>
-        <div class="cart-qty-controls">
-          <button type="button" class="btn btn-outline btn-xs" data-cart-qty="${escapeHtml(item.productId)}" data-next-qty="${item.quantity - 1}">−</button>
-          <span style="min-width:26px;text-align:center;font-weight:700">${item.quantity}</span>
-          <button type="button" class="btn btn-outline btn-xs" data-cart-qty="${escapeHtml(item.productId)}" data-next-qty="${item.quantity + 1}">+</button>
-          <button type="button" class="btn btn-danger btn-xs" data-cart-remove="${escapeHtml(item.productId)}" title="Remove item">🗑️</button>
-        </div>
-      </div>
-    `
-      )
-      .join('');
+    const items=cartItems();
+    el('cartItems').innerHTML=items.length?items.map(item=>`<article class="cart-item"><div class="order-item-picture" style="display:grid;place-items:center">${imageFor({productImageUrl:item.productImageUrl,name:item.productName})}</div><div class="cart-item-content"><h3>${esc(item.productName)}</h3><p>${money(item.price)} each</p><div class="cart-item-bottom"><div class="qty-controls"><button aria-label="Decrease quantity" data-cart-qty="${esc(item.productId)}" data-qty="${Math.max(0,Number(item.quantity)-1)}">−</button><span>${Number(item.quantity)}</span><button aria-label="Increase quantity" data-cart-qty="${esc(item.productId)}" data-qty="${Number(item.quantity)+1}">＋</button></div><strong>${money(item.subtotal)}</strong><button class="remove-link" data-remove-cart="${esc(item.productId)}">Remove</button></div></div></article>`).join(''):empty('Your cart looks a little empty','Ready for your next favorite? Discover something you love.','<button type="button" data-route="shop" class="btn primary">Discover products →</button>');
+    const total=Number(state.cart?.total || 0);
+    el('cartSummary').innerHTML=`<h2>Order summary</h2><div class="summary-line"><span>Items (${Number(state.cart?.totalItems||0)})</span><strong>${money(total)}</strong></div><div class="summary-line"><span>Delivery</span><span>At checkout</span></div><div class="summary-line total"><span>Subtotal</span><strong>${money(total)}</strong></div><button type="button" class="btn primary full" data-route="checkout" ${items.length?'':'disabled'}>Continue to checkout →</button><p>Delivery and applicable charges are confirmed during checkout.</p>`;
   }
-
-  function updateCheckoutTotals(subtotal = state.cart ? Number(state.cart.total || 0) : 0) {
-    const shipping = Number($('orderShippingCost').value || 0);
-    $('checkoutSubtotalDisplay').textContent = formatCurrency(subtotal);
-    $('checkoutShippingDisplay').textContent = formatCurrency(shipping);
-    $('checkoutGrandTotalDisplay').textContent = formatCurrency(subtotal + shipping);
+  async function mutateCart(id,quantity,remove=false) {
+    try {state.cart=await api(`/cart/${encodeURIComponent(id)}`,{method:remove?'DELETE':'PUT',...(remove?{}:{body:{productId:id,quantity}})});renderCart();updateIdentity();}
+    catch(e){toast(e.message,'error');}
   }
-
-  async function addToCart(productId, quantity = 1) {
-    if (!state.token) {
-      $('authDialog').showModal();
-      showToast('Please sign in to add items to your cart.', 'info');
-      return;
-    }
+  async function prepareCheckout() {
+    if(!requireAuth())return;
+    el('checkoutSummary').innerHTML='<p>Loading your items…</p>';
     try {
-      const cart = await apiFetch('/api/cart', {
-        method: 'POST',
-        body: { productId, quantity }
-      });
-      state.cart = cart;
-      renderCart();
-      showToast('Item added to cart!', 'success');
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
+      state.cart=await api('/cart');updateIdentity();
+      if(!cartItems().length){toast('Your cart is empty. Add a product first.','info');route('cart');return;}
+      if(isBuyer())await fetchAddresses();
+      const sel=el('checkoutSavedAddress');sel.innerHTML='<option value="">Enter a new address</option>'+(state.addresses||[]).map(a=>`<option value="${esc(a.id)}" ${a.default?'selected':''}>${esc(a.fullName)} — ${esc(a.city)}, ${esc(a.state)}</option>`).join('');
+      if(sel.value)fillCheckoutAddress(sel.value);
+      const total=Number(state.cart.total||0);
+      el('checkoutSummary').innerHTML=`<h2>Your order</h2>${cartItems().map(i=>`<div class="summary-line"><span>${esc(i.productName)} × ${Number(i.quantity)}</span><strong>${money(i.subtotal)}</strong></div>`).join('')}<div class="summary-line"><span>Shipping</span><span>${money(0)} (current demo setting)</span></div><div class="summary-line total"><span>Estimated total</span><strong>${money(total)}</strong></div><p>Prices are finalized by the backend when you place your order. Cash on delivery does not process an online payment.</p>`;
+    } catch(e){el('checkoutSummary').innerHTML=empty('Checkout unavailable',e.message);toast(e.message,'error');}
+  }
+  function fillCheckoutAddress(id) {
+    const a=state.addresses.find(x=>x.id===id);if(!a)return;
+    el('checkoutName').value=a.fullName||'';el('checkoutPhone').value=a.phone||'';
+    el('checkoutStreet').value=[a.street,a.landmark].filter(Boolean).join(', ');
+    el('checkoutCity').value=a.city||'';el('checkoutState').value=a.state||'';el('checkoutZip').value=a.zipCode||'';el('checkoutCountry').value='India';
+  }
+  async function placeOrder(event) {
+    event.preventDefault();if(!requireAuth())return;
+    const phone=el('checkoutPhone').value.trim().replace(/[\s-]/g,'');
+    // Accepts 5-digit US ZIPs and 6-digit Indian PIN codes.
+    const zip=el('checkoutZip').value.trim();
+    if(!/^(?:\d{5}(?:-\d{4})?|\d{6})$/.test(zip)){toast('Enter a valid postal code (5 or 6 digits).','error');return;}
+    const payload={paymentMethod:'CASH_ON_DELIVERY',deliveryNotes:el('checkoutNotes').value.trim(),shippingAddress:el('checkoutStreet').value.trim(),city:el('checkoutCity').value.trim(),state:el('checkoutState').value.trim(),zipCode:zip,country:el('checkoutCountry').value.trim(),phoneNumber:phone.length===10?'+91'+phone:phone,shippingCost:0};
+    const btn=el('placeOrderBtn');btn.disabled=true;btn.textContent='Placing your order…';
+    try {const order=await api('/orders',{method:'POST',body:payload});state.cart=null;updateIdentity();toast('Order placed! Time for a happy dance ✦','success');route('orders');await showOrder(order.id);}
+    catch(e){toast(e.status===400?'Postal code validation failed. Use a 5-digit US ZIP or a 6-digit Indian PIN code.':e.message,'error');}
+    finally {btn.disabled=false;btn.textContent='Place order →';}
   }
 
-  async function updateCartQuantity(productId, quantity) {
+  // Orders, tracking, cancellations, returns, verified-purchase reviews.
+  async function loadOrders(page=0) {
+    state.ordersPage=Math.max(0,page);el('ordersList').innerHTML=empty('Loading your orders…');
+    const f=el('orderStatusFilter').value;const path=f?`/orders/status/${encodeURIComponent(f)}`:'/orders';
+    try {const data=await api(`${path}?page=${state.ordersPage}&size=10&sort=createdAt,desc`);
+      const orders=Array.isArray(data.content)?data.content:[];
+      el('ordersList').innerHTML=orders.length?orders.map(order=>`<article class="order-card"><div class="order-top"><div><strong>Order #${esc(String(order.id).slice(0,8).toUpperCase())}</strong><small>${esc(humanDate(order.createdAt))} · Tracking ${esc(order.trackingNumber||'Not assigned')}</small></div>${status(order.status)}</div><div class="order-items-line">${(order.items||[]).map(i=>`${esc(i.productName)} × ${Number(i.quantity)}`).join(' · ')}</div><div class="order-bottom"><strong>${money(order.orderTotal||order.totalAmount)}</strong><div class="button-row"><button type="button" class="btn outline btn-sm" data-view-order="${esc(order.id)}">View & track ↗</button>${['PENDING','CONFIRMED','PROCESSING'].includes(order.status)?`<button type="button" class="btn ghost btn-sm" data-cancel-order="${esc(order.id)}">Cancel order</button>`:''}</div></div></article>`).join(''):empty('No orders here yet','Your next great find is waiting for you.','<button class="btn primary" data-route="shop">Explore products →</button>');
+      const pagination=el('ordersPagination');pagination.innerHTML='';
+      if(data.totalPages>1) pagination.innerHTML=`<button class="page-button" data-order-page="${state.ordersPage-1}" ${data.first?'disabled':''}>← Previous</button><span class="muted">Page ${state.ordersPage+1} / ${data.totalPages}</span><button class="page-button" data-order-page="${state.ordersPage+1}" ${data.last?'disabled':''}>Next →</button>`;
+    }catch(e){el('ordersList').innerHTML=empty('Could not load orders',e.message);}
+  }
+  async function showOrder(id) {
     try {
-      const cart = await apiFetch(`/api/cart/${encodeURIComponent(productId)}`, {
-        method: 'PUT',
-        body: { productId, quantity }
-      });
-      state.cart = cart;
-      renderCart();
-      showToast(quantity <= 0 ? 'Item removed from cart' : 'Cart quantity updated', 'success');
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
+      const [order,tracking]=await Promise.all([api(`/orders/${encodeURIComponent(id)}`),api(`/orders/${encodeURIComponent(id)}/track`).catch(()=>null)]);
+      state.currentOrder=order;
+      const canCancel=['PENDING','CONFIRMED','PROCESSING'].includes(order.status),canReturn=order.status==='DELIVERED';
+      el('orderDetailBody').innerHTML=`<span class="eyebrow">YOUR ORDER</span><h2>Order ${esc(String(order.id).slice(0,8).toUpperCase())}</h2><div class="order-detail-row"><span>Status</span>${status(order.status)}</div><div class="order-detail-row"><span>Tracking number</span><strong>${esc(order.trackingNumber||'Pending')}</strong></div><div class="order-detail-row"><span>Placed on</span><strong>${esc(humanDate(order.createdAt))}</strong></div>${tracking?.carrier?`<div class="order-detail-row"><span>Carrier</span><strong>${esc(tracking.carrier)}</strong></div>`:''}<div class="order-detail-row"><span>Delivery address</span><strong>${esc([order.shippingAddress,order.city,order.state,order.zipCode].filter(Boolean).join(', '))}</strong></div><h3>Items in this order</h3>${(order.items||[]).map(item=>`<div class="order-item-detail"><div><strong>${esc(item.productName)}</strong><div class="muted">Qty ${Number(item.quantity)} · ${money(item.subtotal)}</div></div>${canReturn?`<button class="btn outline btn-sm" data-review-item="${esc(item.id)}">Write review</button>`:''}</div>`).join('')}<div class="order-detail-row"><span>Order total</span><strong>${money(order.orderTotal)}</strong></div><div class="form-actions">${canCancel?`<button class="btn danger-outline" data-cancel-order="${esc(order.id)}">Cancel order</button>`:''}${canReturn?`<button class="btn outline" data-return-order="${esc(order.id)}">Request a return</button>`:''}</div><div id="orderInlineForm"></div>`;
+      if(!el('orderDialog').open)el('orderDialog').showModal();
+    }catch(e){toast(e.message,'error');}
   }
+  async function cancelOrder(id){if(!window.confirm('Cancel this order?'))return;try{await api(`/orders/${encodeURIComponent(id)}/cancel`,{method:'PUT'});toast('Order cancelled','success');closeDialog('orderDialog');await loadOrders(state.ordersPage);}catch(e){toast(e.message,'error');}}
+  function showReturnForm(id) {el('orderInlineForm').innerHTML=`<form id="returnForm" class="review-form" data-order-id="${esc(id)}"><h3>Request a return</h3><select id="returnReason" required><option value="">Choose a reason</option>${['DEFECTIVE_PRODUCT','WRONG_ITEM','SIZE_ISSUE','COLOR_ISSUE','DAMAGED_IN_TRANSIT','NOT_AS_DESCRIBED','LATE_DELIVERY','NO_LONGER_NEEDED','OTHER'].map(r=>`<option value="${r}">${esc(labelFor(r))}</option>`).join('')}</select><textarea id="returnComment" maxlength="1000" rows="3" placeholder="Tell us more (optional)"></textarea><button class="btn primary" type="submit">Submit return request</button></form>`;}
+  function showReviewForm(itemId) {el('orderInlineForm').innerHTML=`<form id="reviewForm" class="review-form" data-item-id="${esc(itemId)}"><h3>Share your review</h3><select id="reviewRating" required><option value="5">★★★★★ — 5 stars</option><option value="4">★★★★ — 4 stars</option><option value="3">★★★ — 3 stars</option><option value="2">★★ — 2 stars</option><option value="1">★ — 1 star</option></select><textarea id="reviewComment" maxlength="1000" rows="3" required placeholder="How was your experience?"></textarea><button class="btn primary" type="submit">Post review</button></form>`;}
 
-  async function removeFromCart(productId) {
+  // User verification, seller application, and saved addresses.
+  async function fetchAddresses(){if(!isBuyer())return [];try{const v=await api('/user/addresses');state.addresses=Array.isArray(v)?v:[];return state.addresses;}catch(e){if(e.status!==403)toast(e.message,'error');return [];} }
+  async function loadAccount(){if(!isLoggedIn())return;updateIdentity();await Promise.all([refreshEmailStatus(),loadProfile(),isBuyer()?fetchAddresses():Promise.resolve(),isBuyer()||isSeller()?fetchSellerApplication():Promise.resolve()]);renderAddresses();}
+  function renderAddresses(){if(!isBuyer())return;
+    el('addressesList').innerHTML=state.addresses.length?state.addresses.map(a=>`<div class="address-card"><div><strong>${esc(a.fullName)} ${a.default?'<span class="stock-pill">Default</span>':''}</strong><p>${esc([a.street,a.landmark,a.city,a.state,a.zipCode].filter(Boolean).join(', '))}</p><p>${esc(a.phone||'')}</p></div><div class="button-row"><button class="btn ghost btn-sm" data-edit-address="${esc(a.id)}">Edit</button><button class="btn ghost btn-sm" data-delete-address="${esc(a.id)}">✕</button></div></div>`).join(''):empty('No saved addresses','Add an address to make checkout easier.');
+  }
+  function addressForm(show,addr=null){el('addressForm').classList.toggle('hidden',!show);if(!show)return;const a=addr||{};el('addressFormTitle').textContent=addr?'Edit address':'Add new address';el('addressId').value=a.id||'';for(const [input,key] of [['addressName','fullName'],['addressPhone','phone'],['addressStreet','street'],['addressCity','city'],['addressState','state'],['addressZip','zipCode'],['addressLandmark','landmark']])el(input).value=a[key]||'';el('addressDefault').checked=Boolean(a.default);el('addressForm').scrollIntoView({block:'nearest',behavior:'smooth'});}
+  async function saveAddress(event){event.preventDefault();const id=el('addressId').value;const body={fullName:el('addressName').value.trim(),phone:el('addressPhone').value.trim(),street:el('addressStreet').value.trim(),city:el('addressCity').value.trim(),state:el('addressState').value.trim(),zipCode:el('addressZip').value.trim(),landmark:el('addressLandmark').value.trim(),isDefault:el('addressDefault').checked};try{await api(id?`/user/addresses/${encodeURIComponent(id)}`:'/user/addresses',{method:id?'PUT':'POST',body});toast('Address saved','success');addressForm(false);await fetchAddresses();renderAddresses();}catch(e){toast(e.message,'error');}}
+  async function deleteAddress(id){if(!window.confirm('Remove this saved address?'))return;try{await api(`/user/addresses/${encodeURIComponent(id)}`,{method:'DELETE'});toast('Address removed','success');await fetchAddresses();renderAddresses();}catch(e){toast(e.message,'error');}}
+  async function fetchSellerApplication(){
+    try{state.seller=await api('/seller/me');if(state.seller?.status==='APPROVED')state.role='SELLER';}
+    catch(e){if(e.status===404)state.seller=null;else if(e.status!==403)console.warn('Seller application lookup',e.message);}
+    updateIdentity();
+    const app=state.seller,box=el('sellerApplicationStatus');
+    if(app){box.innerHTML=`<div class="order-detail-row"><span>${esc(app.storeName||'Your store')}</span>${status(app.status)}</div><p class="muted">${app.status==='PENDING'?'Your application is with the admin team. Seller tools will be available when approved.':app.status==='APPROVED'?'Your store is approved and ready to go.':'This seller application is currently suspended.'}</p>`;}
+    else box.textContent='Have a shop in mind? Apply to join our sellers.';
+    el('sellerApplicationForm').classList.toggle('hidden',Boolean(app));
+    return app;
+  }
+  async function submitSellerApplication(event){event.preventDefault();if(!isBuyer())return;try{const app=await api('/seller/become',{method:'POST',body:{storeName:el('applyStoreName').value.trim(),storeLogoUrl:el('applyStoreLogo').value.trim(),businessAddress:el('applyBusinessAddress').value.trim()}});state.seller=app;toast('Application sent! An admin will review your store.','success');await fetchSellerApplication();}catch(e){toast(e.message,'error');}}
+
+  // User profile management
+  async function loadProfile() {
+    if (!isLoggedIn()) return;
     try {
-      const cart = await apiFetch(`/api/cart/${encodeURIComponent(productId)}`, {
-        method: 'DELETE'
-      });
-      state.cart = cart;
-      renderCart();
-      showToast('Item removed from cart', 'success');
-    } catch (err) {
-      showToast(err.message, 'error');
-    }
-  }
-
-  // ==================== ORDERS, TRACKING, CANCEL, RETURN & REVIEWS ====================
-  async function loadOrders() {
-    if (!state.token) {
-      $('ordersListContainer').innerHTML = `<div class="empty-state">Sign in to view your orders.</div>`;
-      return;
-    }
-    const status = $('orderStatusFilter').value;
-    const endpoint =
-      status === 'ALL'
-        ? '/api/orders?page=0&size=20'
-        : `/api/orders/status/${encodeURIComponent(status)}?page=0&size=20`;
-
-    try {
-      const pageData = await apiFetch(endpoint);
-      const list = pageData && Array.isArray(pageData.content) ? pageData.content : [];
-      state.orders = list;
-      $('ordersCountBadge').textContent = `${list.length} order${list.length === 1 ? '' : 's'}`;
-      renderOrdersList(list);
-    } catch (err) {
-      $('ordersListContainer').innerHTML = `<div class="empty-state">Failed to load orders: ${escapeHtml(err.message)}</div>`;
-    }
-  }
-
-  function renderOrdersList(orders) {
-    const container = $('ordersListContainer');
-    if (!orders || orders.length === 0) {
-      container.innerHTML = `<div class="empty-state">No orders found for the selected filter.</div>`;
-      return;
-    }
-
-    container.innerHTML = orders
-      .map((order) => {
-        const items = Array.isArray(order.items) ? order.items : [];
-        const canCancel = !['SHIPPED', 'DELIVERED', 'CANCELLED', 'RETURNED'].includes(order.status);
-        const isDelivered = order.status === 'DELIVERED';
-
-        const statusBadgeClass =
-          order.status === 'DELIVERED'
-            ? 'badge-success'
-            : order.status === 'CANCELLED' || order.status === 'RETURNED'
-            ? 'badge-danger'
-            : 'badge-role';
-
-        return `
-          <div class="order-card">
-            <div class="order-card-header">
-              <div>
-                <strong>Order #<code>${escapeHtml(order.id)}</code></strong>
-                <div class="small text-muted">
-                  Placed: ${formatDate(order.createdAt)} • Tracking #: <code>${escapeHtml(order.trackingNumber)}</code>
-                </div>
-              </div>
-              <div style="display:flex;gap:0.5rem;align-items:center">
-                <span class="badge ${statusBadgeClass}">${escapeHtml(order.status)}</span>
-                <strong>${formatCurrency(order.orderTotal)}</strong>
-              </div>
-            </div>
-
-            <div class="order-items-sublist">
-              ${items
-                .map(
-                  (item) => `
-                <div class="order-item-line">
-                  <div style="display:flex;align-items:center;gap:0.65rem">
-                    <img class="cart-item-thumb" src="${escapeHtml(item.productImageUrl || FALLBACK_IMG)}" alt="${escapeHtml(item.productName)}" onerror="this.src='${FALLBACK_IMG}'" />
-                    <div>
-                      <strong>${escapeHtml(item.productName)}</strong>
-                      <div class="small text-muted">Qty: ${item.quantity} × ${formatCurrency(item.price)} = <strong>${formatCurrency(item.subtotal)}</strong></div>
-                      <div class="small text-muted">OrderItem UUID: <code>${escapeHtml(item.id)}</code></div>
-                    </div>
-                  </div>
-                  <div>
-                    <button
-                      type="button"
-                      class="btn btn-outline btn-xs"
-                      data-review-item="${escapeHtml(item.id)}"
-                      data-review-name="${escapeHtml(item.productName)}"
-                      title="${isDelivered ? 'Write a product review' : 'Backend allows reviews once order is DELIVERED'}"
-                    >
-                      ⭐ Write Review
-                    </button>
-                  </div>
-                </div>
-              `
-                )
-                .join('')}
-            </div>
-
-            <div class="order-card-footer">
-              <div class="small text-muted">
-                Ship to: ${escapeHtml(order.shippingAddress)}, ${escapeHtml(order.city)}, ${escapeHtml(order.state)} ${escapeHtml(order.zipCode)}, ${escapeHtml(order.country)}
-                ${order.returnReason ? ` • <strong>Return Reason:</strong> ${escapeHtml(order.returnReason)}` : ''}
-              </div>
-              <div style="display:flex;gap:0.45rem;flex-wrap:wrap">
-                <button type="button" class="btn btn-outline btn-xs" data-track-order-id="${escapeHtml(order.id)}">📍 Track Order</button>
-                <button type="button" class="btn btn-outline btn-xs" data-track-number="${escapeHtml(order.trackingNumber)}">🚚 Track #${escapeHtml(order.trackingNumber)}</button>
-                ${
-                  canCancel
-                    ? `<button type="button" class="btn btn-danger btn-xs" data-cancel-order="${escapeHtml(order.id)}">✕ Cancel Order</button>`
-                    : ''
-                }
-                <button type="button" class="btn btn-secondary btn-xs" data-return-order="${escapeHtml(order.id)}">↩️ Request Return</button>
-              </div>
-            </div>
-          </div>
-        `;
-      })
-      .join('');
-  }
-
-  function showTrackingResult(t) {
-    $('trackingResultCard').classList.remove('hidden');
-    $('trackingResultBody').innerHTML = `
-      <div class="two-col-layout">
-        <div>
-          <div class="summary-line"><span>Order ID:</span> <code>${escapeHtml(t.id)}</code></div>
-          <div class="summary-line"><span>Tracking Number:</span> <strong><code>${escapeHtml(t.trackingNumber)}</code></strong></div>
-          <div class="summary-line"><span>Current Status:</span> <span class="badge badge-role">${escapeHtml(t.status)}</span></div>
-          <div class="summary-line"><span>Last Updated:</span> <span>${formatDate(t.updatedAt || t.createdAt)}</span></div>
-        </div>
-        <div>
-          <div class="summary-line"><span>Destination:</span> <span>${escapeHtml(t.shippingAddress)}, ${escapeHtml(t.city)}, ${escapeHtml(t.state)} ${escapeHtml(t.zipCode)}</span></div>
-          <div class="summary-line"><span>Country:</span> <span>${escapeHtml(t.country)}</span></div>
-          <div class="summary-line"><span>Carrier:</span> <span>${escapeHtml(t.carrier || 'Standard Express')}</span></div>
-        </div>
-      </div>
-    `;
-  }
-
-  function openReturnOrderModal(orderId) {
-    $('orderActionModalTitle').textContent = `Return Order (${orderId.slice(0, 8)}…)`;
-    $('orderActionModalBody').innerHTML = `
-      <form id="modalReturnOrderForm" class="stack-form">
-        <p class="small text-muted">Note: Backend validates that the order status is <code>DELIVERED</code> before accepting a return.</p>
-        <div class="form-group">
-          <label for="modalReturnReason">Return Reason *</label>
-          <select id="modalReturnReason" required>
-            ${RETURN_REASONS.map((r) => `<option value="${r}">${r.replace(/_/g, ' ')}</option>`).join('')}
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="modalReturnComment">Additional Comments</label>
-          <textarea id="modalReturnComment" rows="3" maxlength="1000" placeholder="Describe the issue..."></textarea>
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">Submit Return Request</button>
-      </form>
-    `;
-    $('orderActionDialog').showModal();
-
-    $('modalReturnOrderForm').onsubmit = async (e) => {
-      e.preventDefault();
-      try {
-        await apiFetch(`/api/orders/${encodeURIComponent(orderId)}/return`, {
-          method: 'PUT',
-          body: {
-            returnReason: $('modalReturnReason').value,
-            comment: $('modalReturnComment').value.trim()
-          }
-        });
-        $('orderActionDialog').close();
-        showToast('Return request submitted!', 'success');
-        loadOrders();
-      } catch (err) {
-        showToast(err.message, 'error');
+      state.profile = await api('/user/me');
+      const p = state.profile;
+      el('pfFirstName').value = p.firstName || '';
+      el('pfLastName').value = p.lastName || '';
+      el('pfPhone').value = p.phone || '';
+      el('pfGender').value = p.gender || '';
+      el('pfAge').value = p.age ?? '';
+      // Update sidebar info with full name
+      if (p.firstName) {
+        el('profileName').textContent = `${p.firstName} ${p.lastName || ''}`.trim();
+        el('profileAvatar').textContent = (p.firstName[0] || 'S').toUpperCase();
       }
+    } catch(e) {
+      if (e.status !== 404 && e.status !== 401) console.warn('Could not load profile', e.message);
+    }
+  }
+
+  async function saveProfile(event) {
+    event.preventDefault();
+    if (!isLoggedIn()) return;
+    const body = {
+      firstName: el('pfFirstName').value.trim(),
+      lastName: el('pfLastName').value.trim(),
+      phone: el('pfPhone').value.trim() || null,
+      gender: el('pfGender').value || null,
+      age: el('pfAge').value ? Number(el('pfAge').value) : null
     };
-  }
-
-  function openReviewItemModal(orderItemId, productName) {
-    $('orderActionModalTitle').textContent = `Review: ${productName}`;
-    $('orderActionModalBody').innerHTML = `
-      <form id="modalReviewItemForm" class="stack-form">
-        <p class="small text-muted">Submitting to <code>POST /api/orders/items/${escapeHtml(orderItemId)}/review</code></p>
-        <div class="form-group">
-          <label for="modalReviewRating">Star Rating (1–5) *</label>
-          <select id="modalReviewRating" required>
-            <option value="5">★★★★★ (5 - Excellent)</option>
-            <option value="4">★★★★☆ (4 - Good)</option>
-            <option value="3">★★★☆☆ (3 - Average)</option>
-            <option value="2">★★☆☆☆ (2 - Fair)</option>
-            <option value="1">★☆☆☆☆ (1 - Poor)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="modalReviewComment">Your Review Comment *</label>
-          <textarea id="modalReviewComment" rows="3" maxlength="1000" placeholder="Share your experience with this product..." required></textarea>
-        </div>
-        <button type="submit" class="btn btn-primary btn-block">Publish Review</button>
-      </form>
-    `;
-    $('orderActionDialog').showModal();
-
-    $('modalReviewItemForm').onsubmit = async (e) => {
-      e.preventDefault();
-      try {
-        await apiFetch(`/api/orders/items/${encodeURIComponent(orderItemId)}/review`, {
-          method: 'POST',
-          body: {
-            rating: Number($('modalReviewRating').value),
-            comment: $('modalReviewComment').value.trim()
-          }
-        });
-        $('orderActionDialog').close();
-        showToast('Review submitted and product rating updated!', 'success');
-        loadProducts();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    };
-  }
-
-  // ==================== BUYER ADDRESSES ====================
-  async function loadAddresses() {
-    if (!state.token) return;
+    const btn = el('saveProfileBtn');
+    btn.disabled = true;
     try {
-      const list = await apiFetch('/api/user/addresses');
-      state.addresses = Array.isArray(list) ? list : [];
-      renderAddresses();
-    } catch (err) {
-      $('addressesListContainer').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
+      const updated = await api('/user/me', { method: 'PUT', body });
+      state.profile = updated;
+      toast('Profile updated successfully!', 'success');
+      // Refresh display
+      if (updated.firstName) {
+        el('profileName').textContent = `${updated.firstName} ${updated.lastName || ''}`.trim();
+        el('profileAvatar').textContent = (updated.firstName[0] || 'S').toUpperCase();
+      }
+    } catch(e) {
+      toast(e.message, 'error');
+    } finally {
+      btn.disabled = false;
     }
   }
 
-  function renderAddresses() {
-    const container = $('addressesListContainer');
-    if (state.addresses.length === 0) {
-      container.innerHTML = `<div class="empty-state">No saved addresses yet. Use the form above to add one!</div>`;
-      return;
-    }
+  // Seller inventory and admin moderation.
+  function sellerProducts(){return isSeller()?state.products.filter(p=>String(p.sellerId)===String(state.seller.id)):[];}
+  function renderSeller(){if(!isSeller())return;const list=sellerProducts();el('sellerListingCount').textContent=list.length;el('sellerStockCount').textContent=list.filter(inStock).length;el('sellerStoreName').textContent=state.seller.storeName||'My store';el('inventoryCount').textContent=`${list.length} listings`;el('sellerInventory').innerHTML=list.length?list.map(p=>`<div class="inventory-row"><div class="order-item-picture" style="display:grid;place-items:center">${imageFor(p)}</div><div><strong>${esc(p.name)}</strong><small>${money(p.price)} · ${Number(p.stockQuantity)} in stock</small><br>${status(p.status)}</div><div class="button-row"><button type="button" class="btn outline btn-sm" data-edit-product="${esc(p.id)}">Edit</button><button type="button" class="btn ghost btn-sm" data-delete-product="${esc(p.id)}">Delete</button></div></div>`).join(''):empty('Your store is ready','Add your first product to share it with shoppers.');}
+  function resetProductForm(){el('productForm').reset();el('editingProductId').value='';el('productFormTitle').textContent='Add a product';el('saveProductBtn').textContent='Publish product';}
+  function editProduct(id){const p=state.products.find(x=>x.id===id);if(!p||!isSeller()||String(p.sellerId)!==String(state.seller.id))return;el('editingProductId').value=id;el('pName').value=p.name||'';el('pBrand').value=p.brand||'';el('pCategory').value=p.category||'';el('pPrice').value=p.price;el('pCompareAtPrice').value=p.compareAtPrice||'';el('pStock').value=p.stockQuantity;el('pImage').value=p.imageUrl||'';el('pDescription').value=p.description||'';el('productFormTitle').textContent='Edit your product';el('saveProductBtn').textContent='Save changes';el('productForm').scrollIntoView({behavior:'smooth'});}
+  async function saveProduct(event){event.preventDefault();if(!isSeller())return;const id=el('editingProductId').value;const body={name:el('pName').value.trim(),brand:el('pBrand').value.trim(),category:el('pCategory').value,price:Number(el('pPrice').value),stockQuantity:Number(el('pStock').value),imageUrl:el('pImage').value.trim(),description:el('pDescription').value.trim()};if(el('pCompareAtPrice').value.trim()){body.compareAtPrice=Number(el('pCompareAtPrice').value);if(body.compareAtPrice<=body.price){toast('Original price must be higher than the selling price.','error');return;}}try{await api(id?`/product/${encodeURIComponent(id)}`:'/product',{method:id?'PUT':'POST',body});toast(id?'Product updated':'Product published','success');resetProductForm();await loadProducts('');renderSeller();}catch(e){toast(e.message,'error');}}
+  async function deleteProduct(id){if(!isSeller()||!window.confirm('Remove this product from your store?'))return;try{await api(`/product/${encodeURIComponent(id)}`,{method:'DELETE'});toast('Product deleted','success');await loadProducts('');renderSeller();}catch(e){toast(e.message,'error');}}
+  function renderAdminProductSelect(){el('adminProductsCount').textContent=state.products.length;el('suspendProductId').innerHTML='<option value="">Choose a product</option>'+state.products.filter(p=>p.status!=='SUSPENDED').map(p=>`<option value="${esc(p.id)}">${esc(p.name)} · ${esc(p.brand)}</option>`).join('');}
+  async function loadAdmin(){if(!isAdmin())return;renderAdminProductSelect();await Promise.all([loadPendingSellers(),loadAdminUsers()]);}
+  async function loadPendingSellers(){try{const list=await api('/admin/sellers/pending');el('adminPendingCount').textContent=list.length;el('pendingSellers').innerHTML=list.length?list.map(s=>`<div class="pending-row"><div><strong>${esc(s.storeName)}</strong><small>${esc(s.businessAddress||'Business address not provided')} · ${esc(s.id)}</small></div><div class="button-row"><button type="button" class="btn primary btn-sm" data-approve-seller="${esc(s.id)}">Approve →</button><button type="button" class="btn ghost btn-sm" data-fill-seller="${esc(s.id)}">Suspend</button></div></div>`).join(''):empty('All caught up','No seller applications are waiting for approval.');}catch(e){el('pendingSellers').innerHTML=empty('Could not load applications',e.message);}}
+  async function approveSeller(id){if(!isAdmin())return;if(!window.confirm('Approve this seller application?'))return;try{await api(`/admin/seller/${encodeURIComponent(id)}/approve`,{method:'PUT'});toast('Seller approved','success');await loadPendingSellers();}catch(e){toast(e.message,'error');}}
+  async function loadAdminUsers(page=null){if(!isAdmin())return;if(page!==null)el('usersPage').value=String(Math.max(0,page));const params=new URLSearchParams({page:el('usersPage').value||'0',size:'10',sort:'createdAt,desc'});if(el('usersRole').value)params.set('role',el('usersRole').value);try{const data=await api(`/admin/users?${params}`);el('adminUsersCount').textContent=String(data.content?.length||0);el('usersList').innerHTML=data.content?.length?data.content.map(u=>`<div class="user-row"><div><strong>${esc([u.firstName,u.lastName].filter(Boolean).join(' ')||u.email)}</strong><small>${esc(u.email)}</small><small>${esc(u.id)}</small></div><div>${status(u.suspended?'SUSPENDED':u.role)}</div></div>`).join(''):empty('No accounts matched','Try a different role filter.');el('usersPagination').innerHTML=`<button type="button" class="page-button" data-users-page="${Number(data.number||0)-1}" ${data.first?'disabled':''}>← Previous</button><span class="muted">Page ${Number(data.number||0)+1} of ${data.totalPages||1}</span><button type="button" class="page-button" data-users-page="${Number(data.number||0)+1}" ${data.last?'disabled':''}>Next →</button>`;}catch(e){el('usersList').innerHTML=empty('Could not load accounts',e.message);}}
 
-    container.innerHTML = state.addresses
-      .map((a) => {
-        const isDef = Boolean(a.default || a.isDefault);
-        return `
-        <div class="address-card">
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <strong>${escapeHtml(a.fullName)}</strong>
-            ${isDef ? '<span class="badge badge-success">Default</span>' : ''}
-          </div>
-          <div class="small">${escapeHtml(a.street)}</div>
-          <div class="small">${escapeHtml(a.city)}, ${escapeHtml(a.state)} ${escapeHtml(a.zipCode)}</div>
-          ${a.landmark ? `<div class="small text-muted">Landmark: ${escapeHtml(a.landmark)}</div>` : ''}
-          <div class="small text-muted">Phone: ${escapeHtml(a.phone)}</div>
-          <div style="display:flex;gap:0.4rem;margin-top:0.5rem">
-            <button type="button" class="btn btn-outline btn-xs" data-edit-address="${escapeHtml(a.id)}">✏️ Edit</button>
-            <button type="button" class="btn btn-danger btn-xs" data-delete-address="${escapeHtml(a.id)}">🗑️ Delete</button>
-          </div>
-        </div>
-      `;
-      })
-      .join('');
+  const banners=[
+    {eyebrow:'THE EVERYDAY EDIT',title:'Find something<br>you\'ll <em>love.</em>',description:'Beautiful finds, useful things, and that just-right pick. Your next favorite starts here.',cta:'Explore the collection',category:null},
+    {eyebrow:'FIND YOUR NEXT FAVORITE',title:'New finds.<br>Fresh <em>energy.</em>',description:'Go from browsing to discovering. Explore newly added products from across the store.',cta:'See the latest',category:null},
+    {eyebrow:'CURATED FOR THE CURIOUS',title:'A little more<br>to <em>discover.</em>',description:'From everyday essentials to unexpected delights, good things are just a click away.',cta:'Discover more',category:null}
+  ];
+  function setBanner(index){state.bannerIndex=(index+3)%3;const b=banners[state.bannerIndex];el('homeHero').dataset.slide=String(state.bannerIndex);el('homeHeading').innerHTML=b.title;el('homeHero').querySelector('.hero-eyebrow').lastChild.textContent=` ${b.eyebrow}`;el('homeHero').querySelector('.hero-content p').textContent=b.description;el('homeHero').querySelector('.hero-cta').firstChild.textContent=b.cta+' ';document.querySelectorAll('.hero-dot').forEach(dot=>dot.classList.toggle('is-current',Number(dot.dataset.slide)===state.bannerIndex));}
+  function renderSuggestions(value){const q=value.trim().toLowerCase();if(!q){el('searchSuggestions').classList.add('hidden');return;}const items=state.products.filter(p=>p.status!=='SUSPENDED'&&[p.name,p.brand,p.description].some(s=>String(s||'').toLowerCase().includes(q))).slice(0,5);if(!items.length){el('searchSuggestions').classList.add('hidden');return;}el('searchSuggestions').innerHTML=items.map(p=>`<button type="button" class="suggestion-item" data-open-product="${esc(p.id)}">${safeImage(p.imageUrl)?`<img src="${safeImage(p.imageUrl)}" alt="">`:`<span>${categoryIcon(p.category)}</span>`}<span><strong>${esc(p.name)}</strong><small>${money(p.price)} · ${esc(p.brand)}</small></span></button>`).join('');el('searchSuggestions').classList.remove('hidden');}
+
+  function bindEvents(){
+    document.body.addEventListener('click',async e=>{
+      const button=e.target.closest('button');if(!button)return;
+      if(button.hasAttribute('data-route')){route(button.dataset.route);return;}
+      if(button.hasAttribute('data-category')){selectCategory(button.dataset.category);return;}
+      if(button.hasAttribute('data-slide')){setBanner(Number(button.dataset.slide));return;}
+      if(button.hasAttribute('data-open-product')){closeCategoryDropdown();el('searchSuggestions').classList.add('hidden');await showProduct(button.dataset.openProduct);return;}
+      if(button.hasAttribute('data-add-cart')){await addToCart(button.dataset.addCart);return;}
+      if(button.hasAttribute('data-cart-qty')){await mutateCart(button.dataset.cartQty,Number(button.dataset.qty));return;}
+      if(button.hasAttribute('data-remove-cart')){await mutateCart(button.dataset.removeCart,0,true);return;}
+      if(button.hasAttribute('data-catalog-page')){state.catalogPage=Number(button.dataset.catalogPage);renderCatalog();el('shopHeading').scrollIntoView({behavior:'smooth'});return;}
+      if(button.hasAttribute('data-order-page')){await loadOrders(Number(button.dataset.orderPage));return;}
+      if(button.hasAttribute('data-view-order')){await showOrder(button.dataset.viewOrder);return;}
+      if(button.hasAttribute('data-cancel-order')){await cancelOrder(button.dataset.cancelOrder);return;}
+      if(button.hasAttribute('data-return-order')){showReturnForm(button.dataset.returnOrder);return;}
+      if(button.hasAttribute('data-review-item')){showReviewForm(button.dataset.reviewItem);return;}
+      if(button.hasAttribute('data-edit-address')){addressForm(true,state.addresses.find(a=>a.id===button.dataset.editAddress));return;}
+      if(button.hasAttribute('data-delete-address')){await deleteAddress(button.dataset.deleteAddress);return;}
+      if(button.hasAttribute('data-edit-product')){editProduct(button.dataset.editProduct);return;}
+      if(button.hasAttribute('data-delete-product')){await deleteProduct(button.dataset.deleteProduct);return;}
+      if(button.hasAttribute('data-approve-seller')){await approveSeller(button.dataset.approveSeller);return;}
+      if(button.hasAttribute('data-fill-seller')){el('suspendSellerId').value=button.dataset.fillSeller;el('suspendSellerId').scrollIntoView({behavior:'smooth'});return;}
+      if(button.hasAttribute('data-users-page')){await loadAdminUsers(Number(button.dataset.usersPage));return;}
+      if(button.hasAttribute('data-auth-tab')){setAuthTab(button.dataset.authTab);return;}
+      if(button.hasAttribute('data-close-dialog')){closeDialog(button.dataset.closeDialog);return;}
+      if(button.hasAttribute('data-guest')){closeDialog('authDialog');route('home');return;}
+      if(button.id==='emptyClearFilters'){resetFilters();return;}
+    });
+    el('categoryToggle').addEventListener('click',()=>{const hide=el('categoryDropdown').classList.toggle('hidden');el('categoryToggle').setAttribute('aria-expanded',String(!hide));});
+    document.addEventListener('click',e=>{if(!e.target.closest('#categoryMenu'))closeCategoryDropdown();if(!e.target.closest('#headerSearch'))el('searchSuggestions').classList.add('hidden');});
+    el('accountBtn').addEventListener('click',()=>isLoggedIn()?route('account'):openAuth());
+    el('closeAuthBtn').addEventListener('click',()=>closeDialog('authDialog'));
+    el('forgotPasswordBtn').addEventListener('click',()=>{el('resetEmail').value=el('loginEmail').value.trim();setAuthTab('reset');});
+    el('globalSearch').addEventListener('input',e=>renderSuggestions(e.target.value));
+    el('headerSearch').addEventListener('submit',async e=>{e.preventDefault();const q=el('globalSearch').value.trim();state.catalogQuery=q;state.catalogPage=0;state.category='';el('filterCategory').value='';try{await loadProducts(q);}catch(err){toast(err.message,'error');}route('shop');el('searchSuggestions').classList.add('hidden');});
+    for(const id of ['filterCategory','filterSort','filterInStock','filterMaxPrice'])el(id).addEventListener(id==='filterMaxPrice'?'input':'change',()=>{state.catalogPage=0;renderCatalog();});
+    el('resetFilters').addEventListener('click',resetFilters);
+    el('loginForm').addEventListener('submit',login);
+    el('registerForm').addEventListener('submit',register);
+    el('requestResetBtn').addEventListener('click',requestResetOtp);
+    el('resetForm').addEventListener('submit',resetPassword);
+    el('logoutBtn').addEventListener('click',()=>{setSession('');route('home');openAuth();toast('You have signed out. See you soon!','info');});
+    el('sendEmailOtpBtn').addEventListener('click',sendVerificationOtp);
+    el('verifyEmailOtpBtn').addEventListener('click',verifyEmailOtp);
+    el('resetEmail').addEventListener('input',updateOtpButtons);
+    el('newAddressBtn').addEventListener('click',()=>addressForm(true));
+    el('cancelAddressBtn').addEventListener('click',()=>addressForm(false));
+    el('addressForm').addEventListener('submit',saveAddress);
+    el('sellerApplicationForm').addEventListener('submit',submitSellerApplication);
+    el('profileForm').addEventListener('submit',saveProfile);
+    el('checkoutSavedAddress').addEventListener('change',e=>{if(e.target.value)fillCheckoutAddress(e.target.value);});
+    el('checkoutForm').addEventListener('submit',placeOrder);
+    el('orderStatusFilter').addEventListener('change',()=>loadOrders(0));
+    el('productForm').addEventListener('submit',saveProduct);
+    el('resetProductBtn').addEventListener('click',resetProductForm);
+    el('sellerRefresh').addEventListener('click',async()=>{try{await fetchSellerApplication();await loadProducts('');toast('Listings refreshed','success');}catch(err){toast(err.message,'error');}});
+    el('adminRefreshBtn').addEventListener('click',loadAdmin);
+    el('userFilters').addEventListener('submit',e=>{e.preventDefault();loadAdminUsers();});
+    el('suspendProductForm').addEventListener('submit',async e=>{e.preventDefault();const id=el('suspendProductId').value;try{await api(`/admin/product/${encodeURIComponent(id)}/suspend`,{method:'PUT',body:{reason:el('suspendProductReason').value.trim()}});toast('Product suspended','success');el('suspendProductForm').reset();await loadProducts('');}catch(err){toast(err.message,'error');}});
+    el('suspendSellerForm').addEventListener('submit',async e=>{e.preventDefault();const id=el('suspendSellerId').value.trim();try{await api(`/admin/seller/${encodeURIComponent(id)}/suspend`,{method:'PUT',body:{reason:el('suspendSellerReason').value.trim()}});toast('Seller suspended','success');el('suspendSellerForm').reset();await loadPendingSellers();}catch(err){toast(err.message,'error');}});
+    el('orderDialog').addEventListener('submit',async e=>{if(e.target.id==='returnForm'){e.preventDefault();const id=e.target.dataset.orderId;try{await api(`/orders/${encodeURIComponent(id)}/return`,{method:'PUT',body:{returnReason:el('returnReason').value,comment:el('returnComment').value.trim()}});toast('Return request submitted','success');closeDialog('orderDialog');await loadOrders(state.ordersPage);}catch(err){toast(err.message,'error');}}
+      if(e.target.id==='reviewForm'){e.preventDefault();const id=e.target.dataset.itemId;try{await api(`/orders/items/${encodeURIComponent(id)}/review`,{method:'POST',body:{rating:Number(el('reviewRating').value),comment:el('reviewComment').value.trim()}});toast('Thanks for sharing your review!','success');closeDialog('orderDialog');await loadOrders(state.ordersPage);}catch(err){toast(err.message,'error');}}});
+    for(const id of ['productDialog','orderDialog'])el(id).addEventListener('click',e=>{if(e.target===el(id))closeDialog(id);});
+    document.addEventListener('error',e=>{if(e.target?.tagName==='IMG'){e.target.style.display='none';if(e.target.parentElement&&!e.target.parentElement.querySelector('.media-fallback')){const fallback=document.createElement('span');fallback.className='media-fallback';fallback.textContent='✳';e.target.parentElement.appendChild(fallback);}}},true);
+    window.addEventListener('hashchange',renderRoute);
+    document.addEventListener('visibilitychange',()=>{if(document.hidden)el('searchSuggestions').classList.add('hidden');});
   }
-
-  function resetAddressForm() {
-    $('editAddressId').value = '';
-    $('addressForm').reset();
-    $('addressFormTitle').textContent = '📍 Add Buyer Address';
-    $('addressSubmitBtn').textContent = '💾 Save Address';
-    $('cancelAddressEditBtn').classList.add('hidden');
+  function resetFilters(){state.catalogQuery='';state.catalogPage=0;state.category='';el('filterCategory').value='';el('filterSort').value='newest';el('filterMaxPrice').value='';el('filterInStock').checked=false;el('globalSearch').value='';loadProducts('').catch(err=>toast(err.message,'error'));renderCatalog();}
+  async function login(e){e.preventDefault();clearLoginError();const button=e.target.querySelector('button[type=submit]');button.disabled=true;try{const result=await api('/auth/login',{method:'POST',auth:false,body:{email:el('loginEmail').value.trim(),password:el('loginPassword').value}});const token=typeof result==='string'?result.trim():result?.token||result?.accessToken;if(!/^[\w-]+\.[\w-]+\.[\w-]+$/.test(token||''))throw new Error('Login failed: the server did not return a valid token.');setSession(token);await hydrateSession();closeDialog('authDialog');toast('Welcome to ShopSphere ✦','success');route('home');try{await loadProducts('');}catch{ /* search errors are shown separately */ }}catch(err){const message=[401,403].includes(err.status)?'Incorrect email or password. Please try again.':err.message;showLoginError(message);}finally{button.disabled=false;}}
+  async function register(e){e.preventDefault();const body={firstName:el('regFirst').value.trim(),lastName:el('regLast').value.trim(),email:el('regEmail').value.trim(),phone:el('regPhone').value.trim()||null,password:el('regPassword').value,gender:el('regGender').value||null,age:el('regAge').value?Number(el('regAge').value):null};try{await api('/user/register',{method:'POST',auth:false,body});toast('Your account is ready. Sign in to get started!','success');el('loginEmail').value=body.email;setAuthTab('login');}catch(err){toast(err.message,'error');}}
+  async function requestResetOtp(){
+    const email=el('resetEmail').value.trim();
+    if(!email || !el('resetEmail').checkValidity()){toast('Enter a valid email address first.','info');return;}
+    if(state.resetOtpSending || otpSecondsRemaining('reset',email)>0)return;
+    state.resetOtpSending=true;
+    updateOtpButtons();
+    try{
+      await api(`/auth/forgot-password?email=${encodeURIComponent(email)}`,{method:'POST',auth:false});
+      startOtpCooldown('reset',email);
+      toast('If the email exists, a recovery code has been sent.','success');
+    }catch(err){
+      if(err.status===429)startOtpCooldown('reset',email);
+      toast(err.message,'error');
+    }finally{state.resetOtpSending=false;updateOtpButtons();}
   }
+  async function resetPassword(e){e.preventDefault();try{await api('/auth/reset-password',{method:'POST',auth:false,body:{email:el('resetEmail').value.trim(),otp:el('resetOtp').value.trim(),newPassword:el('resetNewPassword').value}});toast('Password updated. Sign in with your new password.','success');el('loginEmail').value=el('resetEmail').value;setAuthTab('login');}catch(err){toast(err.message,'error');}}
 
-  // ==================== SELLER STUDIO ====================
-  function renderSellerProductsTable() {
-    const wrap = $('sellerProductsTableWrap');
-    if (state.products.length === 0) {
-      wrap.innerHTML = `<div class="empty-state">No products in catalog yet. Use the form on the left to add your first product!</div>`;
-      return;
-    }
-
-    wrap.innerHTML = `
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Product</th>
-            <th>Category</th>
-            <th>Price</th>
-            <th>Stock</th>
-            <th>Status</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${state.products
-            .map(
-              (p) => `
-            <tr>
-              <td>
-                <strong>${escapeHtml(p.name)}</strong>
-                <div class="small text-muted">${escapeHtml(p.brand)} • <code>${escapeHtml(String(p.id).slice(0, 8))}…</code></div>
-              </td>
-              <td><span class="badge">${escapeHtml(p.category)}</span></td>
-              <td><strong>${formatCurrency(p.price)}</strong></td>
-              <td>${p.stockQuantity}</td>
-              <td><span class="badge ${p.status === 'AVAILABLE' ? 'badge-success' : 'badge-warning'}">${escapeHtml(p.status)}</span></td>
-              <td style="white-space:nowrap">
-                <button type="button" class="btn btn-outline btn-xs" data-seller-edit="${escapeHtml(p.id)}">✏️ Edit</button>
-                <button type="button" class="btn btn-danger btn-xs" data-seller-delete="${escapeHtml(p.id)}">🗑️ Delete</button>
-              </td>
-            </tr>
-          `
-            )
-            .join('')}
-        </tbody>
-      </table>
-    `;
+  async function init(){renderCategories();bindEvents();setBanner(0);updateIdentity();renderEmailVerification();updateOtpButtons();renderRoute();
+    try{await loadProducts('');}catch(e){el('featuredGrid').innerHTML=empty('The store is temporarily unavailable',e.message);el('catalogGrid').innerHTML=empty('Could not load the catalog',e.message);el('dealsGrid').innerHTML=empty('Could not load special finds',e.message);}
+    await hydrateSession();renderRoute();
+    if(!isLoggedIn())openAuth();
+    window.setInterval(()=>{if(!document.hidden&&state.currentRoute==='home')setBanner(state.bannerIndex+1);},7000);
+    window.setInterval(updateOtpButtons,1000);
   }
-
-  function resetSellerProductForm() {
-    $('editProductId').value = '';
-    $('sellerProductForm').reset();
-    $('sellerProductFormTitle').textContent = '➕ Add New Product';
-    $('sellerProductSubmitBtn').textContent = '🚀 Publish Product';
-    $('cancelProductEditBtn').classList.add('hidden');
-  }
-
-  // ==================== ADMIN CONSOLE ====================
-  async function loadAdminUsers() {
-    const role = $('adminRoleFilter').value;
-    const gender = $('adminGenderFilter').value;
-    const age = $('adminAgeFilter').value;
-    const page = $('adminPageInput').value || 0;
-
-    const params = new URLSearchParams();
-    if (role) params.set('role', role);
-    if (gender) params.set('gender', gender);
-    if (age) params.set('age', age);
-    params.set('page', page);
-    params.set('size', '20');
-
-    try {
-      const pageData = await apiFetch(`/api/admin/users?${params.toString()}`);
-      const users = pageData && Array.isArray(pageData.content) ? pageData.content : [];
-      renderAdminUsersTable(users, pageData);
-    } catch (err) {
-      $('adminUsersTableContainer').innerHTML = `<div class="empty-state">${escapeHtml(err.message)}</div>`;
-      showToast(err.message, 'error');
-    }
-  }
-
-  function renderAdminUsersTable(users, pageMeta) {
-    const container = $('adminUsersTableContainer');
-    if (users.length === 0) {
-      container.innerHTML = `<div class="empty-state">No users matched the selected filters.</div>`;
-      return;
-    }
-
-    container.innerHTML = `
-      <div class="small text-muted mb-md">
-        Showing ${users.length} of ${pageMeta?.totalElements ?? users.length} total users (Page ${(pageMeta?.number ?? 0) + 1} of ${pageMeta?.totalPages || 1})
-      </div>
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>User / UUID</th>
-            <th>Email &amp; Phone</th>
-            <th>Role</th>
-            <th>Demographics</th>
-            <th>Status</th>
-            <th>Last Login</th>
-            <th>Admin Action</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${users
-            .map(
-              (u) => `
-            <tr>
-              <td>
-                <strong>${escapeHtml(u.firstName)} ${escapeHtml(u.lastName)}</strong>
-                <div class="small text-muted"><code>${escapeHtml(u.id)}</code></div>
-              </td>
-              <td>
-                <div>${escapeHtml(u.email)}</div>
-                <div class="small text-muted">${escapeHtml(u.phone || '—')}</div>
-              </td>
-              <td><span class="badge badge-role">${escapeHtml(u.role)}</span></td>
-              <td class="small">${escapeHtml(u.gender || '—')} • Age: ${u.age ?? '—'}</td>
-              <td>
-                <span class="badge ${u.emailVerified ? 'badge-success' : 'badge-warning'}">${u.emailVerified ? 'Verified' : 'Unverified'}</span>
-                ${u.suspended ? '<span class="badge badge-danger">Suspended</span>' : ''}
-              </td>
-              <td class="small">${formatDate(u.lastLoginAt)}</td>
-              <td>
-                ${
-                  u.role === 'SELLER'
-                    ? `<button type="button" class="btn btn-danger btn-xs" data-prefill-suspend-seller="${escapeHtml(u.id)}">🚫 Suspend Seller</button>`
-                    : '<span class="small text-muted">—</span>'
-                }
-              </td>
-            </tr>
-          `
-            )
-            .join('')}
-        </tbody>
-      </table>
-    `;
-  }
-
-  // ==================== EVENT LISTENERS ====================
-  function bindEvents() {
-    // Brand home click
-    $('brandHomeBtn').addEventListener('click', () => switchTab('shop'));
-
-    // Main tab bar
-    $('mainNavTabs').addEventListener('click', (e) => {
-      const btn = e.target.closest('.nav-tab[data-tab]');
-      if (btn) switchTab(btn.dataset.tab);
-    });
-
-    // Quick cart button
-    $('cartQuickBtn').addEventListener('click', () => switchTab('cart'));
-
-    // Auth dialog open/close & inner tab switcher
-    $('openAuthModalBtn').addEventListener('click', () => $('authDialog').showModal());
-    $('closeAuthDialogBtn').addEventListener('click', () => $('authDialog').close());
-    $('closeProductModalBtn').addEventListener('click', () => $('productDetailDialog').close());
-    $('closeOrderActionModalBtn').addEventListener('click', () => $('orderActionDialog').close());
-
-    document.querySelectorAll('.auth-tab').forEach((tabBtn) => {
-      tabBtn.addEventListener('click', () => {
-        const target = tabBtn.dataset.authTab;
-        document.querySelectorAll('.auth-tab').forEach((b) => b.classList.toggle('active', b === tabBtn));
-        document.querySelectorAll('.auth-panel').forEach((p) => p.classList.toggle('active', p.id === `auth-panel-${target}`));
-      });
-    });
-
-    // Logout
-    $('logoutBtn').addEventListener('click', () => {
-      setToken(null);
-      showToast('Signed out successfully.', 'info');
-      switchTab('shop');
-    });
-
-    // Login Form (`POST /api/auth/login`)
-    $('loginForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      try {
-        const token = await apiFetch('/api/auth/login', {
-          method: 'POST',
-          body: {
-            email: $('loginEmail').value.trim(),
-            password: $('loginPassword').value
-          }
-        });
-        setToken(typeof token === 'string' ? token.trim() : token);
-        $('authDialog').close();
-        showToast('Signed in successfully!', 'success');
-        await fetchSessionDebug();
-        loadCart();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    // Register Form (`POST /api/user/register`)
-    $('registerForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      try {
-        const email = $('regEmail').value.trim();
-        await apiFetch('/api/user/register', {
-          method: 'POST',
-          body: {
-            firstName: $('regFirstName').value.trim(),
-            lastName: $('regLastName').value.trim(),
-            email,
-            phone: $('regPhone').value.trim(),
-            password: $('regPassword').value,
-            gender: $('regGender').value,
-            age: Number($('regAge').value || 22)
-          }
-        });
-        showToast('Account registered! Please sign in.', 'success');
-        $('loginEmail').value = email;
-        document.querySelector('.auth-tab[data-auth-tab="login"]').click();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    // Forgot Password Form (`POST /api/auth/forgot-password?email=`)
-    $('forgotPasswordForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const email = $('forgotEmailInput').value.trim();
-      try {
-        const msg = await apiFetch(`/api/auth/forgot-password?email=${encodeURIComponent(email)}`, {
-          method: 'POST'
-        });
-        $('resetEmailInput').value = email;
-        showToast(typeof msg === 'string' ? msg : 'Password reset OTP sent!', 'success');
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    // Reset Password Form (`POST /api/auth/reset-password`)
-    $('resetPasswordForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      try {
-        const msg = await apiFetch('/api/auth/reset-password', {
-          method: 'POST',
-          body: {
-            email: $('resetEmailInput').value.trim(),
-            otp: $('resetOtpInput').value.trim(),
-            newPassword: $('resetNewPasswordInput').value
-          }
-        });
-        showToast(typeof msg === 'string' ? msg : 'Password updated!', 'success');
-        $('loginEmail').value = $('resetEmailInput').value.trim();
-        document.querySelector('.auth-tab[data-auth-tab="login"]').click();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    // Global Search & Storefront Filters
-    $('globalSearchForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      switchTab('shop');
-      loadProducts($('globalSearchInput').value.trim());
-    });
-
-    $('clearSearchBtn').addEventListener('click', () => {
-      $('globalSearchInput').value = '';
-      $('categoryFilterSelect').value = 'ALL';
-      $('statusFilterSelect').value = 'ALL';
-      loadProducts('');
-    });
-
-    $('refreshProductsBtn').addEventListener('click', () => loadProducts($('globalSearchInput').value.trim()));
-    $('categoryFilterSelect').addEventListener('change', renderProductsGrid);
-    $('statusFilterSelect').addEventListener('change', renderProductsGrid);
-    $('sortProductsSelect').addEventListener('change', renderProductsGrid);
-
-    $('directProductLookupBtn').addEventListener('click', () => {
-      const id = $('directProductIdInput').value.trim();
-      if (!id) {
-        showToast('Enter a Product UUID first', 'info');
-        return;
-      }
-      inspectProductDetail(id);
-    });
-
-    // Product Grid Delegation
-    $('productsGrid').addEventListener('click', (e) => {
-      const inspectBtn = e.target.closest('[data-inspect-product]');
-      if (inspectBtn) {
-        inspectProductDetail(inspectBtn.dataset.inspectProduct);
-        return;
-      }
-      const addBtn = e.target.closest('[data-add-cart]');
-      if (addBtn) {
-        addToCart(addBtn.dataset.addCart, 1);
-      }
-    });
-
-    // Cart Actions & Checkout
-    $('refreshCartBtn').addEventListener('click', loadCart);
-
-    $('viewPageableCartBtn').addEventListener('click', async () => {
-      const box = $('cartPageableOutput');
-      if (!box.classList.contains('hidden')) {
-        box.classList.add('hidden');
-        return;
-      }
-      try {
-        const page = await apiFetch('/api/cart/items?page=0&size=20');
-        box.textContent = JSON.stringify(page, null, 2);
-        box.classList.remove('hidden');
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    $('cartItemsContainer').addEventListener('click', (e) => {
-      const qtyBtn = e.target.closest('[data-cart-qty]');
-      if (qtyBtn) {
-        updateCartQuantity(qtyBtn.dataset.cartQty, Number(qtyBtn.dataset.nextQty));
-        return;
-      }
-      const rmBtn = e.target.closest('[data-cart-remove]');
-      if (rmBtn) {
-        removeFromCart(rmBtn.dataset.cartRemove);
-      }
-    });
-
-    $('orderShippingCost').addEventListener('input', () => updateCheckoutTotals());
-
-    // Saved Address Autofill in Checkout
-    $('autofillAddressBtn').addEventListener('click', async () => {
-      await loadAddresses();
-      const box = $('savedAddressPickerBox');
-      const sel = $('savedAddressSelect');
-      if (state.addresses.length === 0) {
-        showToast('No saved Buyer addresses found. Add one in the Account tab or fill the fields manually.', 'info');
-        return;
-      }
-      sel.innerHTML = `<option value="">-- Select address --</option>` +
-        state.addresses
-          .map((a, idx) => `<option value="${idx}">${escapeHtml(a.fullName)} — ${escapeHtml(a.street)}, ${escapeHtml(a.city)} (${escapeHtml(a.zipCode)})</option>`)
-          .join('');
-      box.classList.remove('hidden');
-    });
-
-    $('savedAddressSelect').addEventListener('change', (e) => {
-      const idx = e.target.value;
-      if (idx === '') return;
-      const addr = state.addresses[Number(idx)];
-      if (!addr) return;
-      $('orderShippingAddress').value = addr.street || '';
-      $('orderCity').value = addr.city || '';
-      $('orderState').value = addr.state || '';
-      // Ensure 5-digit ZIP pattern for PlaceOrderRequest validation (\d{5}(-\d{4})?)
-      const rawZip = String(addr.zipCode || '').trim();
-      $('orderZipCode').value = /^\d{5}(-\d{4})?$/.test(rawZip) ? rawZip : rawZip.slice(0, 5).padEnd(5, '0');
-      $('orderPhoneNumber').value = addr.phone || '';
-    });
-
-    // Place Order (`POST /api/orders`)
-    $('placeOrderForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      try {
-        const order = await apiFetch('/api/orders', {
-          method: 'POST',
-          body: {
-            paymentMethod: $('orderPaymentMethod').value,
-            shippingCost: Number($('orderShippingCost').value || 0),
-            shippingAddress: $('orderShippingAddress').value.trim(),
-            city: $('orderCity').value.trim(),
-            state: $('orderState').value.trim(),
-            zipCode: $('orderZipCode').value.trim(),
-            country: $('orderCountry').value.trim(),
-            phoneNumber: $('orderPhoneNumber').value.trim(),
-            deliveryNotes: $('orderDeliveryNotes').value.trim()
-          }
-        });
-        showToast(`Order placed! Tracking #: ${order.trackingNumber}`, 'success');
-        await loadCart();
-        await loadProducts();
-        switchTab('orders');
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    // Orders & Tracking Tab
-    $('refreshOrdersBtn').addEventListener('click', loadOrders);
-    $('orderStatusFilter').addEventListener('change', loadOrders);
-    $('closeTrackingCardBtn').addEventListener('click', () => $('trackingResultCard').classList.add('hidden'));
-
-    $('trackByNumberForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const trk = $('trackingNumberInput').value.trim();
-      if (!trk) return;
-      try {
-        const res = await apiFetch(`/api/orders/track/${encodeURIComponent(trk)}`);
-        showTrackingResult(res);
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    $('lookupOrderByIdForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const orderId = $('lookupOrderIdInput').value.trim();
-      if (!orderId) return;
-      try {
-        const order = await apiFetch(`/api/orders/${encodeURIComponent(orderId)}`);
-        renderOrdersList([order]);
-        showToast('Loaded order details', 'success');
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    $('trackOrderIdBtn').addEventListener('click', async () => {
-      const orderId = $('lookupOrderIdInput').value.trim();
-      if (!orderId) {
-        showToast('Enter an Order UUID first', 'info');
-        return;
-      }
-      try {
-        const res = await apiFetch(`/api/orders/${encodeURIComponent(orderId)}/track`);
-        showTrackingResult(res);
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    $('ordersListContainer').addEventListener('click', async (e) => {
-      const trackIdBtn = e.target.closest('[data-track-order-id]');
-      if (trackIdBtn) {
-        try {
-          const res = await apiFetch(`/api/orders/${encodeURIComponent(trackIdBtn.dataset.trackOrderId)}/track`);
-          showTrackingResult(res);
-        } catch (err) {
-          showToast(err.message, 'error');
-        }
-        return;
-      }
-
-      const trackNumBtn = e.target.closest('[data-track-number]');
-      if (trackNumBtn) {
-        try {
-          const res = await apiFetch(`/api/orders/track/${encodeURIComponent(trackNumBtn.dataset.trackNumber)}`);
-          showTrackingResult(res);
-        } catch (err) {
-          showToast(err.message, 'error');
-        }
-        return;
-      }
-
-      const cancelBtn = e.target.closest('[data-cancel-order]');
-      if (cancelBtn) {
-        const id = cancelBtn.dataset.cancelOrder;
-        try {
-          await apiFetch(`/api/orders/${encodeURIComponent(id)}/cancel`, { method: 'PUT' });
-          showToast('Order cancelled and product stock restored.', 'success');
-          loadOrders();
-          loadProducts();
-        } catch (err) {
-          showToast(err.message, 'error');
-        }
-        return;
-      }
-
-      const returnBtn = e.target.closest('[data-return-order]');
-      if (returnBtn) {
-        openReturnOrderModal(returnBtn.dataset.returnOrder);
-        return;
-      }
-
-      const reviewBtn = e.target.closest('[data-review-item]');
-      if (reviewBtn) {
-        openReviewItemModal(reviewBtn.dataset.reviewItem, reviewBtn.dataset.reviewName);
-      }
-    });
-
-    // Account, Email OTP, Become Seller & Buyer Addresses
-    $('refreshAccountBtn').addEventListener('click', () => {
-      fetchSessionDebug();
-      loadAddresses();
-    });
-
-    $('sendEmailOtpBtn').addEventListener('click', async () => {
-      const btn = $('sendEmailOtpBtn');
-      const statusEl = $('emailOtpStatusMsg');
-      btn.disabled = true;
-      btn.textContent = '⏳ Sending OTP to your email...';
-      if (statusEl) statusEl.innerHTML = '<span class="text-muted">Sending OTP via SMTP... do not click again or it will overwrite the code.</span>';
-      try {
-        const msg = await apiFetch('/api/user/email-verification');
-        showToast(typeof msg === 'string' ? msg : 'Verification OTP sent to your email!', 'success');
-        if (statusEl) {
-          statusEl.innerHTML = '<span style="color:var(--success);font-weight:600">✓ New 8-digit OTP sent! Check the newest message at the bottom of your Gmail thread.</span>';
-        }
-        btn.textContent = '📨 Resend Verification OTP';
-        btn.disabled = false;
-      } catch (err) {
-        if (statusEl) {
-          statusEl.innerHTML = `<span style="color:var(--danger);font-weight:600">✕ ${escapeHtml(err.message)}</span>`;
-        }
-        showToast(err.message, 'error');
-        btn.textContent = '📨 Send Verification OTP to My Email';
-        btn.disabled = false;
-      }
-    });
-
-    $('verifyEmailOtpForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const statusEl = $('emailOtpStatusMsg');
-      const verifyBtn = $('verifyEmailOtpBtn');
-      const otpValue = $('emailOtpInput').value.replace(/\s+/g, '');
-      if (verifyBtn) verifyBtn.disabled = true;
-      try {
-        const msg = await apiFetch('/api/user/verify-otp', {
-          method: 'POST',
-          body: { otp: otpValue }
-        });
-        showToast(typeof msg === 'string' ? msg : 'Email verified!', 'success');
-        if (statusEl) {
-          statusEl.innerHTML = `<span style="color:var(--success);font-weight:600">✅ ${escapeHtml(typeof msg === 'string' ? msg : 'Your Email Has Been Verified!')}</span>`;
-        }
-        $('emailOtpInput').value = '';
-      } catch (err) {
-        if (statusEl) {
-          statusEl.innerHTML = `<span style="color:var(--danger);font-weight:600">✕ ${escapeHtml(err.message)} — Make sure you are using the most recent 8-digit OTP email (not an older message in the Gmail thread).</span>`;
-        }
-        showToast(err.message, 'error');
-      } finally {
-        if (verifyBtn) verifyBtn.disabled = false;
-      }
-    });
-
-    $('becomeSellerForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      try {
-        const res = await apiFetch('/api/seller/become', {
-          method: 'POST',
-          body: {
-            storeName: $('sellerStoreName').value.trim(),
-            businessAddress: $('sellerBusinessAddress').value.trim(),
-            storeLogoUrl: $('sellerStoreLogoUrl').value.trim()
-          }
-        });
-        $('sellerUpgradeResult').innerHTML = `
-          <div class="badge badge-success">Store Created: ${escapeHtml(res.storeName)} (Status: ${escapeHtml(res.status)})</div>
-        `;
-        showToast('Congratulations! Your account is now upgraded to SELLER.', 'success');
-        await fetchSessionDebug();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    $('refreshAddressesBtn').addEventListener('click', loadAddresses);
-    $('cancelAddressEditBtn').addEventListener('click', resetAddressForm);
-
-    $('addressForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const editId = $('editAddressId').value.trim();
-      const isDefault = $('addrIsDefault').checked;
-      const payload = {
-        fullName: $('addrFullName').value.trim(),
-        phone: $('addrPhone').value.trim(),
-        street: $('addrStreet').value.trim(),
-        city: $('addrCity').value.trim(),
-        state: $('addrState').value.trim(),
-        zipCode: $('addrZipCode').value.trim(),
-        landmark: $('addrLandmark').value.trim(),
-        default: isDefault,
-        isDefault: isDefault
-      };
-
-      try {
-        if (editId) {
-          await apiFetch(`/api/user/addresses/${encodeURIComponent(editId)}`, {
-            method: 'PUT',
-            body: payload
-          });
-          showToast('Address updated!', 'success');
-        } else {
-          await apiFetch('/api/user/addresses', {
-            method: 'POST',
-            body: payload
-          });
-          showToast('Address added!', 'success');
-        }
-        resetAddressForm();
-        loadAddresses();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    $('addressesListContainer').addEventListener('click', async (e) => {
-      const editBtn = e.target.closest('[data-edit-address]');
-      if (editBtn) {
-        const addr = state.addresses.find((a) => String(a.id) === editBtn.dataset.editAddress);
-        if (!addr) return;
-        $('editAddressId').value = addr.id;
-        $('addrFullName').value = addr.fullName || '';
-        $('addrPhone').value = addr.phone || '';
-        $('addrStreet').value = addr.street || '';
-        $('addrCity').value = addr.city || '';
-        $('addrState').value = addr.state || '';
-        $('addrZipCode').value = addr.zipCode || '';
-        $('addrLandmark').value = addr.landmark || '';
-        $('addrIsDefault').checked = Boolean(addr.default || addr.isDefault);
-        $('addressFormTitle').textContent = '✏️ Edit Buyer Address';
-        $('addressSubmitBtn').textContent = '💾 Update Address';
-        $('cancelAddressEditBtn').classList.remove('hidden');
-        return;
-      }
-
-      const delBtn = e.target.closest('[data-delete-address]');
-      if (delBtn) {
-        try {
-          await apiFetch(`/api/user/addresses/${encodeURIComponent(delBtn.dataset.deleteAddress)}`, {
-            method: 'DELETE'
-          });
-          showToast('Address deleted', 'success');
-          loadAddresses();
-        } catch (err) {
-          showToast(err.message, 'error');
-        }
-      }
-    });
-
-    // Seller Studio Events
-    $('refreshSellerProductsBtn').addEventListener('click', () => loadProducts(''));
-    $('cancelProductEditBtn').addEventListener('click', resetSellerProductForm);
-
-    $('sellerProductForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const editId = $('editProductId').value.trim();
-      const payload = {
-        name: $('prodName').value.trim(),
-        brand: $('prodBrand').value.trim(),
-        category: $('prodCategory').value,
-        price: Number($('prodPrice').value),
-        stockQuantity: Number($('prodStock').value),
-        imageUrl: $('prodImageUrl').value.trim(),
-        description: $('prodDescription').value.trim()
-      };
-
-      try {
-        if (editId) {
-          await apiFetch(`/api/product/${encodeURIComponent(editId)}`, {
-            method: 'PUT',
-            body: payload
-          });
-          showToast('Product updated!', 'success');
-        } else {
-          await apiFetch('/api/product', {
-            method: 'POST',
-            body: payload
-          });
-          showToast('Product created!', 'success');
-        }
-        resetSellerProductForm();
-        loadProducts('');
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    $('sellerProductsTableWrap').addEventListener('click', async (e) => {
-      const editBtn = e.target.closest('[data-seller-edit]');
-      if (editBtn) {
-        const p = state.products.find((item) => String(item.id) === editBtn.dataset.sellerEdit);
-        if (!p) return;
-        $('editProductId').value = p.id;
-        $('prodName').value = p.name || '';
-        $('prodBrand').value = p.brand || '';
-        $('prodCategory').value = p.category || 'ELECTRONICS';
-        $('prodPrice').value = p.price;
-        $('prodStock').value = p.stockQuantity;
-        $('prodImageUrl').value = p.imageUrl || '';
-        $('prodDescription').value = p.description || '';
-        $('sellerProductFormTitle').textContent = `✏️ Update Product (${String(p.id).slice(0, 8)}…)`;
-        $('sellerProductSubmitBtn').textContent = '💾 Save Changes';
-        $('cancelProductEditBtn').classList.remove('hidden');
-        return;
-      }
-
-      const delBtn = e.target.closest('[data-seller-delete]');
-      if (delBtn) {
-        try {
-          await apiFetch(`/api/product/${encodeURIComponent(delBtn.dataset.sellerDelete)}`, {
-            method: 'DELETE'
-          });
-          showToast('Product deleted!', 'success');
-          loadProducts('');
-        } catch (err) {
-          showToast(err.message, 'error');
-        }
-      }
-    });
-
-    // Admin Console Events
-    $('adminLoadUsersBtn').addEventListener('click', loadAdminUsers);
-    $('adminUsersFilterForm').addEventListener('submit', (e) => {
-      e.preventDefault();
-      loadAdminUsers();
-    });
-
-    $('adminSuspendProductForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const id = $('suspendProductIdInput').value.trim();
-      const reason = $('suspendProductReasonInput').value.trim();
-      try {
-        await apiFetch(`/api/admin/product/${encodeURIComponent(id)}/suspend`, {
-          method: 'PUT',
-          body: { reason }
-        });
-        showToast('Product suspended by Admin.', 'success');
-        $('adminSuspendProductForm').reset();
-        loadProducts('');
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    $('adminSuspendSellerForm').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const id = $('suspendSellerIdInput').value.trim();
-      const reason = $('suspendSellerReasonInput').value.trim();
-      try {
-        await apiFetch(`/api/admin/seller/${encodeURIComponent(id)}/suspend`, {
-          method: 'PUT',
-          body: { reason }
-        });
-        showToast('Seller & associated User account suspended.', 'success');
-        $('adminSuspendSellerForm').reset();
-        loadAdminUsers();
-      } catch (err) {
-        showToast(err.message, 'error');
-      }
-    });
-
-    $('adminUsersTableContainer').addEventListener('click', (e) => {
-      const btn = e.target.closest('[data-prefill-suspend-seller]');
-      if (btn) {
-        $('suspendSellerIdInput').value = btn.dataset.prefillSuspendSeller;
-        $('suspendSellerReasonInput').focus();
-        showToast('Pre-filled Seller UUID in Suspend Seller form above.', 'info');
-      }
-    });
-  }
-
-  // ==================== INITIALIZATION ====================
-  async function init() {
-    populateCategorySelects();
-    bindEvents();
-    updateAuthUI();
-    await loadProducts('');
-    if (state.token) {
-      await fetchSessionDebug();
-      await loadCart();
-    }
-  }
-
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded',init);
 })();

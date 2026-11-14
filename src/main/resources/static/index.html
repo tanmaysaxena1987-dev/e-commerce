@@ -1,725 +1,106 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ShopSphere — Full-Stack E-Commerce</title>
-  <link rel="stylesheet" href="/css/styles.css" />
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1248c8">
+  <meta name="description" content="ShopSphere: discover your next favorite thing. Explore categories, shop collections, and manage your orders.">
+  <title>ShopSphere — Discover your next favorite</title>
+  <link rel="stylesheet" href="/css/styles.css">
+  <script defer src="/js/app.js"></script>
 </head>
 <body>
-  <!-- Top Header -->
-  <header class="topbar">
-    <div class="container topbar-inner">
-      <div class="brand" id="brandHomeBtn" role="button" tabindex="0">
-        <span class="brand-icon">🛍️</span>
-        <div>
-          <span class="brand-title">ShopSphere</span>
-          <span class="brand-subtitle">Spring Boot E-Commerce</span>
-        </div>
-      </div>
-
-      <!-- Global Search -->
-      <form id="globalSearchForm" class="search-bar">
-        <input
-          type="search"
-          id="globalSearchInput"
-          placeholder="Search products by name, brand, or description..."
-          aria-label="Search products"
-        />
-        <button type="submit" class="btn btn-primary btn-sm">Search</button>
-        <button type="button" id="clearSearchBtn" class="btn btn-ghost btn-sm" title="Show all products">Reset</button>
+  <div class="announcement"><span class="announcement-dot"></span> A little something for everyone <span class="announcement-sep">✦</span> Fresh finds, every day <span class="announcement-dot"></span></div>
+  <header class="site-header">
+    <div class="container header-inner">
+      <button class="brand" type="button" data-route="home" aria-label="ShopSphere home"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 40 40" fill="none"><path d="M8 11h4l3.2 15.2a2 2 0 0 0 2 1.6h13.6a2 2 0 0 0 2-1.6L35 16H13" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><circle cx="20" cy="33" r="2" fill="currentColor"/><circle cx="30" cy="33" r="2" fill="currentColor"/></svg></span><span>shop<span class="brand-blue">sphere</span><span class="brand-spark">✦</span></span></button>
+      <form class="header-search" id="headerSearch" autocomplete="off" role="search">
+        <svg class="search-glyph" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.4" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <input id="globalSearch" type="search" placeholder="Search for products, brands, and more" aria-label="Search products" spellcheck="false">
+        <button type="submit" class="search-submit">Search</button>
+        <div class="search-suggestions hidden" id="searchSuggestions" role="listbox" aria-label="Search suggestions"></div>
       </form>
-
-      <!-- User Status & Auth Controls -->
       <div class="header-actions">
-        <div id="userBadge" class="user-badge hidden">
-          <span id="userEmailDisplay" class="user-email"></span>
-          <span id="userRoleBadge" class="badge badge-role">BUYER</span>
-        </div>
-        <button type="button" id="cartQuickBtn" class="btn btn-outline btn-sm">
-          🛒 Cart <span id="cartCountBadge" class="badge badge-count">0</span>
-        </button>
-        <button type="button" id="openAuthModalBtn" class="btn btn-primary btn-sm">Sign In / Register</button>
-        <button type="button" id="logoutBtn" class="btn btn-danger btn-sm hidden">Logout</button>
+        <button class="header-icon" data-route="orders" id="ordersHeaderBtn" type="button" title="Orders" aria-label="Orders"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3h10l3 4v14l-4-2-4 2-4-2-4 2V7l3-4Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 9h8M8 13h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg><span class="header-icon-label">Orders</span></button>
+        <button class="header-icon cart-toggle" data-route="cart" type="button" title="Shopping cart" aria-label="Cart"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 4h2l2.5 11.2a2 2 0 0 0 2 1.6H19l2-9.5H6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><circle cx="10" cy="21" r="1.3" fill="currentColor"/><circle cx="18" cy="21" r="1.3" fill="currentColor"/></svg><span class="header-icon-label">Cart</span><span id="cartCount" class="count-badge">0</span></button>
+        <button class="account-pill" id="accountBtn" type="button"><span class="account-avatar" id="accountAvatar">↗</span><span id="accountLabel">Sign in</span></button>
       </div>
     </div>
-
-    <!-- Main Navigation Tabs -->
-    <nav class="nav-tabs-bar">
-      <div class="container nav-tabs" id="mainNavTabs">
-        <button type="button" class="nav-tab active" data-tab="shop">🏪 Storefront</button>
-        <button type="button" class="nav-tab" data-tab="cart">🛒 Cart &amp; Checkout</button>
-        <button type="button" class="nav-tab" data-tab="orders">📦 Orders &amp; Reviews</button>
-        <button type="button" class="nav-tab" data-tab="account">👤 Account, OTP &amp; Addresses</button>
-        <button type="button" class="nav-tab" data-tab="seller" id="sellerNavTab">🏷️ Seller Studio</button>
-        <button type="button" class="nav-tab" data-tab="admin" id="adminNavTab">🛡️ Admin Console</button>
-        <a href="/docs" target="_blank" rel="noopener" class="nav-tab nav-tab-external">📄 Swagger API Docs ↗</a>
-      </div>
-    </nav>
   </header>
+  <nav class="main-nav" aria-label="Primary navigation">
+    <div class="container nav-inner">
+      <div class="category-menu" id="categoryMenu">
+        <button type="button" class="category-menu-toggle" id="categoryToggle" aria-expanded="false" aria-controls="categoryDropdown"><span class="hamburger">☷</span> All categories <span class="chevron">⌄</span></button>
+        <div id="categoryDropdown" class="category-dropdown hidden"><div class="dropdown-heading">Explore categories</div><div id="dropdownCategories" class="dropdown-grid"></div></div>
+      </div>
+      <div class="nav-links" id="navLinks">
+        <button type="button" data-route="home" class="nav-link selected">Home</button>
+        <button type="button" data-route="shop" class="nav-link">All products</button>
+        <button type="button" data-route="deals" class="nav-link">Special finds <span class="nav-new">NEW</span></button>
+        <button type="button" data-route="orders" class="nav-link">My orders</button>
+        <button type="button" data-route="account" class="nav-link">My account</button>
+        <button type="button" data-route="seller" class="nav-link hidden" id="sellerNav">Seller studio</button>
+        <button type="button" data-route="admin" class="nav-link hidden" id="adminNav">Admin console</button>
+      </div>
+      <div class="nav-promise">✦ &nbsp; Discover. Love. Repeat.</div>
+    </div>
+  </nav>
 
-  <!-- Toast Notification Container -->
-  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
-
-  <!-- Main Workspace -->
-  <main class="container main-content">
-
-    <!-- ==================== TAB 1: STOREFRONT (PRODUCTS) ==================== -->
-    <section id="tab-shop" class="tab-panel active">
-      <div class="panel-header">
-        <div>
-          <h1>Product Catalog</h1>
-          <p class="text-muted">Browse, search, filter by category, inspect product details &amp; reviews, and add items to your cart.</p>
-        </div>
-        <div class="panel-actions">
-          <div class="inline-lookup">
-            <input type="text" id="directProductIdInput" placeholder="Lookup by Product UUID..." />
-            <button type="button" id="directProductLookupBtn" class="btn btn-outline btn-sm">Inspect UUID</button>
+  <main id="appMain">
+    <section class="page active" id="page-home" aria-labelledby="homeHeading">
+      <div class="container">
+        <div class="hero-grid">
+          <article class="hero-primary" id="homeHero">
+            <div class="hero-glow"></div>
+            <div class="hero-content"><span class="hero-eyebrow"><span class="dot-light"></span> THE EVERYDAY EDIT</span><h1 id="homeHeading">Find something<br>you'll <em>love.</em></h1><p>Beautiful finds, useful things, and that just-right pick. Your next favorite starts here.</p><button class="hero-cta" data-route="shop" type="button">Explore the collection <span>↗</span></button><div class="hero-dots"><button class="hero-dot is-current" data-slide="0" aria-label="Go to slide one"></button><button class="hero-dot" data-slide="1" aria-label="Go to slide two"></button><button class="hero-dot" data-slide="2" aria-label="Go to slide three"></button></div></div>
+            <div class="hero-art" aria-hidden="true"><div class="hero-ring outer"></div><div class="hero-ring inner"></div><div class="hero-art-card art-card-one"><span>✦</span><small>Everyday<br>essentials</small></div><div class="hero-art-card art-card-two"><span>◈</span><small>Great<br>discoveries</small></div><div class="hero-art-center">S<span>✳</span></div><div class="floating-star star-a">✳</div><div class="floating-star star-b">✦</div></div>
+          </article>
+          <div class="hero-side">
+            <article class="side-promo promo-peach" id="dealSpotlight"><div><span class="promo-kicker">YOUR STYLE, REIMAGINED</span><h2>Good things.<br>Better days.</h2><p>Explore little upgrades for everyday life.</p><button type="button" data-category="CLOTHING">Explore style <span>↗</span></button></div><span class="side-art">✿</span></article>
+            <article class="side-promo promo-indigo"><div><span class="promo-kicker">MADE FOR YOUR MOMENT</span><h2>Tech that<br>just clicks.</h2><p>Discover smart picks and new favorites.</p><button type="button" data-category="ELECTRONICS">Shop technology <span>↗</span></button></div><span class="side-art">⌘</span></article>
           </div>
-          <button type="button" id="refreshProductsBtn" class="btn btn-secondary btn-sm">↻ Refresh Catalog</button>
         </div>
-      </div>
-
-      <!-- Category & Filter Bar -->
-      <div class="filter-bar card">
-        <div class="filter-group">
-          <label for="categoryFilterSelect">Category</label>
-          <select id="categoryFilterSelect">
-            <option value="ALL">All Categories</option>
-          </select>
-        </div>
-        <div class="filter-group">
-          <label for="statusFilterSelect">Availability</label>
-          <select id="statusFilterSelect">
-            <option value="ALL">All Statuses</option>
-            <option value="AVAILABLE">Available</option>
-            <option value="OUT_OF_STOCK">Out of Stock</option>
-            <option value="SUSPENDED">Suspended</option>
-          </select>
-        </div>
-        <div class="filter-group">
-          <label for="sortProductsSelect">Sort By</label>
-          <select id="sortProductsSelect">
-            <option value="newest">Newest First</option>
-            <option value="price-asc">Price: Low to High</option>
-            <option value="price-desc">Price: High to Low</option>
-            <option value="rating-desc">Highest Rated</option>
-          </select>
-        </div>
-        <div class="filter-stats">
-          <span id="productCountLabel" class="badge">0 products</span>
-        </div>
-      </div>
-
-      <!-- Product Grid -->
-      <div id="productsGrid" class="products-grid">
-        <div class="empty-state">Loading products...</div>
+        <div class="trust-strip" aria-label="Why ShopSphere"><div><span>✧</span><strong>Thoughtfully curated</strong><small>Find what fits you</small></div><div><span>◇</span><strong>Many categories</strong><small>Explore a little more</small></div><div><span>◉</span><strong>Simple checkout</strong><small>Shop in a few steps</small></div><div><span>♡</span><strong>Your space</strong><small>Orders in one place</small></div></div>
+        <div class="section-heading"><div><span class="eyebrow">BROWSE YOUR WAY</span><h2>Shop by category <span class="heading-accent">✳</span></h2><p>Whatever you're into, there's something here for you.</p></div><button type="button" data-route="shop" class="text-link">Browse everything ↗</button></div>
+        <div class="category-tiles" id="categoryTiles"></div>
+        <div class="section-heading featured-header"><div><span class="eyebrow">HANDPICKED FROM THE CATALOG</span><h2>Discover something good.</h2><p>Real listings from our marketplace, refreshed from the store.</p></div><button type="button" data-route="shop" class="text-link">All products ↗</button></div>
+        <div class="product-grid" id="featuredGrid"><div class="skeleton-grid">Loading the latest finds…</div></div>
+        <div class="wide-promo"><div><span class="promo-kicker">A LITTLE MORE TO EXPLORE</span><h2>The good stuff is<br>just a click away.</h2><button type="button" class="wide-promo-btn" data-route="deals">Explore special finds →</button></div><div class="wide-promo-doodle" aria-hidden="true">✴︎ <span>✳</span> ✴︎</div></div>
       </div>
     </section>
 
-    <!-- ==================== TAB 2: CART & CHECKOUT ==================== -->
-    <section id="tab-cart" class="tab-panel">
-      <div class="panel-header">
-        <div>
-          <h1>Shopping Cart &amp; Checkout</h1>
-          <p class="text-muted">Manage quantities, view paginated cart items, and place your order (`POST /api/orders`).</p>
-        </div>
-        <div class="panel-actions">
-          <button type="button" id="refreshCartBtn" class="btn btn-secondary btn-sm">↻ Refresh Cart</button>
-          <button type="button" id="viewPageableCartBtn" class="btn btn-outline btn-sm">📄 View Paginated Items API</button>
-        </div>
-      </div>
+    <section class="page" id="page-shop" aria-labelledby="shopHeading"><div class="container page-pad"><div class="page-header"><div><span class="eyebrow">EXPLORE MORE</span><h1 id="shopHeading">Everything, all in one place.</h1><p id="shopSummary">Browse the collection and find your next favorite.</p></div><button type="button" class="btn ghost" data-route="home">← Back home</button></div><div class="catalog-layout"><aside class="filter-sidebar"><h3>Refine your finds</h3><label>Category <select id="filterCategory"><option value="">All categories</option></select></label><label>Sort by <select id="filterSort"><option value="newest">Newest arrivals</option><option value="price-asc">Price: low to high</option><option value="price-desc">Price: high to low</option><option value="rating">Top rated</option><option value="name">Name A–Z</option></select></label><label>Max price <input id="filterMaxPrice" type="number" step="1" min="0" placeholder="No limit"></label><label class="check-row"><input id="filterInStock" type="checkbox"> Only in-stock products</label><button type="button" class="filter-reset" id="resetFilters">Clear filters</button><div class="sidebar-promo"><span>✦</span><strong>Your next favorite is closer than you think.</strong></div></aside><div class="catalog-main"><div class="catalog-toolbar"><span id="catalogCount">Finding products…</span><div class="catalog-search-note" id="catalogQueryLabel"></div></div><div class="product-grid" id="catalogGrid"></div><div id="catalogPagination" class="pagination"></div></div></div></div></section>
 
-      <div class="two-col-layout">
-        <!-- Left: Cart Items -->
-        <div class="card">
-          <div class="card-header-row">
-            <h2>Your Cart Items</h2>
-            <span id="cartTotalItemsLabel" class="badge">0 items</span>
-          </div>
-          <div id="cartItemsContainer" class="cart-items-list">
-            <div class="empty-state">Sign in to view and manage your cart.</div>
-          </div>
-          <div id="cartPageableOutput" class="code-preview hidden"></div>
-        </div>
+    <section class="page" id="page-deals" aria-labelledby="dealsHeading"><div class="container page-pad"><div class="page-header"><div><span class="eyebrow">GREAT FINDS</span><h1 id="dealsHeading">Special finds, worth a look.</h1><p id="dealsDescription">Explore favorites from across the store. Actual discounts appear only when the product provides an original price.</p></div></div><div class="deal-hero"><div><span class="promo-kicker">THE EDIT</span><h2>More discovery.<br>Less scrolling.</h2><p>Browse the picks that stand out today.</p></div><span aria-hidden="true">✳</span></div><div class="product-grid" id="dealsGrid"></div></div></section>
 
-        <!-- Right: Place Order Form -->
-        <div class="card">
-          <div class="card-header-row">
-            <h2>Checkout &amp; Place Order</h2>
-            <button type="button" id="autofillAddressBtn" class="btn btn-outline btn-xs">📍 Fill from Saved Address</button>
-          </div>
+    <section class="page" id="page-cart" aria-labelledby="cartHeading"><div class="container page-pad"><div class="page-header"><div><span class="eyebrow">YOUR BAG</span><h1 id="cartHeading">Your cart, your picks.</h1><p>Almost there. Review your choices before checkout.</p></div></div><div class="cart-layout"><div id="cartItems" class="cart-items"></div><aside id="cartSummary" class="summary-card"></aside></div></div></section>
 
-          <div id="savedAddressPickerBox" class="saved-picker-box hidden">
-            <label for="savedAddressSelect">Choose a Saved Buyer Address:</label>
-            <select id="savedAddressSelect">
-              <option value="">-- Select address --</option>
-            </select>
-          </div>
+    <section class="page" id="page-checkout" aria-labelledby="checkoutHeading"><div class="container page-pad"><div class="page-header"><div><span class="eyebrow">ALMOST THERE</span><h1 id="checkoutHeading">Let's get it to you.</h1><p>Review your delivery details and place your order.</p></div></div><div class="checkout-grid"><form id="checkoutForm" class="panel form-panel"><div class="panel-heading"><h2>Delivery details</h2><span>01 / 02</span></div><label>Use saved address <select id="checkoutSavedAddress"><option value="">Enter a new address</option></select></label><div class="field-grid"><label>Full name <input id="checkoutName" name="fullName" required autocomplete="name"></label><label>Phone number <input id="checkoutPhone" name="phone" type="tel" required placeholder="9876543210" autocomplete="tel"></label></div><label>Street address <input id="checkoutStreet" name="street" required autocomplete="street-address" placeholder="House / apartment, street"></label><div class="field-grid"><label>City <input id="checkoutCity" name="city" required></label><label>State <input id="checkoutState" name="state" required></label></div><div class="field-grid"><label>Postal / PIN code <input id="checkoutZip" name="zip" required inputmode="numeric" autocomplete="postal-code" placeholder="Postal code"></label><label>Country <input id="checkoutCountry" name="country" value="India" required></label></div><label>Delivery notes <textarea id="checkoutNotes" rows="3" placeholder="Anything we should know? (optional)"></textarea></label><div class="panel-heading second"><h2>Payment preference</h2><span>02 / 02</span></div><label class="payment-option"><input type="radio" name="payment" value="CASH_ON_DELIVERY" checked><span><strong>Cash on delivery</strong><small>Payment is collected on delivery. No online payment is processed here.</small></span><span>✓</span></label><button class="btn primary full" type="submit" id="placeOrderBtn">Place order →</button><p class="checkout-footnote">Order creation is handled by your store backend. Online card/UPI payments aren't integrated.</p></form><aside id="checkoutSummary" class="summary-card"></aside></div></div></section>
 
-          <form id="placeOrderForm" class="stack-form">
-            <div class="form-row">
-              <div class="form-group">
-                <label for="orderPaymentMethod">Payment Method *</label>
-                <select id="orderPaymentMethod" required>
-                  <option value="CREDIT_CARD">Credit Card</option>
-                  <option value="DEBIT_CARD">Debit Card</option>
-                  <option value="UPI">UPI</option>
-                  <option value="NET_BANKING">Net Banking</option>
-                  <option value="CASH_ON_DELIVERY">Cash on Delivery</option>
-                </select>
-              </div>
-              <div class="form-group">
-                <label for="orderShippingCost">Shipping Cost ($) *</label>
-                <input type="number" id="orderShippingCost" step="0.01" min="0" value="5.00" required />
-              </div>
-            </div>
+    <section class="page" id="page-orders" aria-labelledby="ordersHeading"><div class="container page-pad"><div class="page-header"><div><span class="eyebrow">YOUR JOURNEY</span><h1 id="ordersHeading">Your orders, in one place.</h1><p>Track deliveries, manage orders, and share a review.</p></div><div class="inline-filter"><label for="orderStatusFilter">Filter:</label><select id="orderStatusFilter"><option value="">All orders</option><option value="PENDING">Pending</option><option value="CONFIRMED">Confirmed</option><option value="PROCESSING">Processing</option><option value="SHIPPED">Shipped</option><option value="DELIVERED">Delivered</option><option value="CANCELLED">Cancelled</option><option value="RETURN_REQUESTED">Return requested</option><option value="RETURNED">Returned</option></select></div></div><div id="ordersList" class="stack-cards"></div><div id="ordersPagination" class="pagination"></div></div></section>
 
-            <div class="form-group">
-              <label for="orderShippingAddress">Street / Shipping Address *</label>
-              <input type="text" id="orderShippingAddress" placeholder="123 Main Street, Apt 4B" required />
-            </div>
+    <section class="page" id="page-account" aria-labelledby="accountHeading"><div class="container page-pad"><div class="page-header"><div><span class="eyebrow">ALL ABOUT YOU</span><h1 id="accountHeading">Your corner of ShopSphere.</h1><p>Manage your profile, delivery addresses, and store application.</p></div></div><div class="account-layout"><aside class="account-side panel"><div class="profile-big-avatar" id="profileAvatar">S</div><strong id="profileName">Your account</strong><span id="profileEmail" class="subtle">Welcome to ShopSphere</span><span id="profileRole" class="role-badge">Customer</span><button type="button" id="logoutBtn" class="btn outline full">Sign out</button></aside><div class="account-main"><section class="panel form-panel email-verification-panel" id="emailVerificationPanel">
+  <div class="panel-heading"><h2>Email verification</h2><span>Account security</span></div>
+  <div id="emailVerificationLoading" class="verification-loading hidden" role="status"><span class="mini-spinner" aria-hidden="true"></span> Checking your email verification status…</div>
+  <div id="emailVerifiedBadge" class="email-verified-banner hidden" role="status" aria-live="polite"><span class="email-verified-check" aria-hidden="true">✓</span><div><strong>Email verified</strong><p>Your email address has been successfully verified.</p></div><span class="verified-label">VERIFIED</span></div>
+  <div id="emailVerificationControls">
+    <p class="muted">Confirm your email to keep your account secure.</p>
+    <div class="field-inline"><input id="emailOtp" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="Enter 8-digit code" aria-label="Email verification code"><button id="sendEmailOtpBtn" type="button" class="btn outline" aria-describedby="emailOtpHint">Send code</button><button id="verifyEmailOtpBtn" type="button" class="btn primary">Verify email</button></div>
+    <p class="otp-hint" id="emailOtpHint">Code expires after 5 minutes. You can request a new code after the countdown.</p>
+  </div>
+</section><section class="panel form-panel" id="profilePanel"><div class="panel-heading"><h2>Personal information</h2><span>Profile</span></div><form id="profileForm"><div class="field-grid"><label>First name <input id="pfFirstName" required></label><label>Last name <input id="pfLastName" required></label></div><div class="field-grid"><label>Phone <input id="pfPhone" inputmode="tel" maxlength="10" placeholder="10-digit number"></label><label>Gender <select id="pfGender"><option value="">Prefer not to say</option><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select></label></div><label>Age <input id="pfAge" type="number" min="1" max="150" placeholder="Your age"></label><div class="form-actions"><button type="submit" id="saveProfileBtn" class="btn primary">Save changes</button></div></form></section><section class="panel form-panel" id="accountAddressPanel"><div class="panel-heading"><h2>Saved addresses</h2><button id="newAddressBtn" class="btn outline btn-sm" type="button">+ Add address</button></div><div id="addressesList" class="address-list"></div><form id="addressForm" class="address-form hidden"><h3 id="addressFormTitle">Add new address</h3><input type="hidden" id="addressId"><div class="field-grid"><label>Full name <input id="addressName" required></label><label>Phone (10 digits) <input id="addressPhone" required inputmode="tel" maxlength="10"></label></div><label>Street <input id="addressStreet" required></label><div class="field-grid"><label>City <input id="addressCity" required></label><label>State <input id="addressState" required></label></div><div class="field-grid"><label>Postal / PIN <input id="addressZip" required></label><label>Landmark (optional) <input id="addressLandmark"></label></div><label class="check-row"><input id="addressDefault" type="checkbox"> Set as default</label><div class="form-actions"><button class="btn primary" type="submit">Save address</button><button id="cancelAddressBtn" class="btn ghost" type="button">Cancel</button></div></form></section><section class="panel form-panel" id="sellerApplicationPanel"><div class="panel-heading"><h2>Sell with ShopSphere</h2><span>Become a partner</span></div><div id="sellerApplicationStatus" class="muted">Have a shop in mind? Apply to join our sellers.</div><form id="sellerApplicationForm"><div class="field-grid"><label>Store name <input id="applyStoreName" required placeholder="Your storefront name"></label><label>Store logo URL <input id="applyStoreLogo" placeholder="https://... (optional)"></label></div><label>Business address <textarea id="applyBusinessAddress" rows="2" placeholder="Your business address"></textarea></label><button type="submit" class="btn primary">Submit application →</button></form></section></div></div></div></section>
 
-            <div class="form-row">
-              <div class="form-group">
-                <label for="orderCity">City *</label>
-                <input type="text" id="orderCity" placeholder="New York" required />
-              </div>
-              <div class="form-group">
-                <label for="orderState">State *</label>
-                <input type="text" id="orderState" placeholder="NY" required />
-              </div>
-            </div>
+    <section class="page" id="page-seller" aria-labelledby="sellerHeading"><div class="container page-pad"><div class="page-header"><div><span class="eyebrow">SELLER STUDIO</span><h1 id="sellerHeading">Make your store shine.</h1><p>Manage your listings and keep your catalog looking its best.</p></div><button type="button" id="sellerRefresh" class="btn outline">↻ Refresh listings</button></div><div class="seller-stats"><div><span>My listings</span><strong id="sellerListingCount">0</strong></div><div><span>In stock</span><strong id="sellerStockCount">0</strong></div><div><span>Store</span><strong id="sellerStoreName">—</strong></div></div><div class="seller-layout"><form id="productForm" class="panel form-panel"><div class="panel-heading"><h2 id="productFormTitle">Add a product</h2><span>Store catalog</span></div><input type="hidden" id="editingProductId"><label>Product name <input id="pName" required placeholder="Give it a great name"></label><div class="field-grid"><label>Brand <input id="pBrand" required></label><label>Category <select id="pCategory" required></select></label></div><div class="field-grid"><label>Price (₹) <input type="number" step="0.01" min="0.01" id="pPrice" required></label><label>Stock quantity <input type="number" min="0" step="1" id="pStock" required></label></div><label>Original/list price (optional, ₹) <input type="number" step="0.01" min="0.01" id="pCompareAtPrice" placeholder="Show a discount when higher than selling price"></label><label>Product image URL <input id="pImage" required placeholder="https://..."></label><label>Description <textarea id="pDescription" required rows="4"></textarea></label><div class="form-actions"><button type="submit" id="saveProductBtn" class="btn primary">Publish product</button><button type="button" id="resetProductBtn" class="btn ghost">Clear form</button></div></form><div class="panel seller-inventory"><div class="panel-heading"><h2>My products</h2><span id="inventoryCount">0 listings</span></div><div id="sellerInventory" class="inventory-list"></div></div></div></div></section>
 
-            <div class="form-row">
-              <div class="form-group">
-                <label for="orderZipCode">ZIP Code * <small>(5 digits, e.g. 10001)</small></label>
-                <input
-                  type="text"
-                  id="orderZipCode"
-                  placeholder="10001 or 10001-1234"
-                  pattern="\d{5}(-\d{4})?"
-                  title="5-digit ZIP code (e.g. 10001 or 10001-1234)"
-                  required
-                />
-              </div>
-              <div class="form-group">
-                <label for="orderCountry">Country *</label>
-                <input type="text" id="orderCountry" placeholder="USA" value="USA" required />
-              </div>
-            </div>
-
-            <div class="form-group">
-              <label for="orderPhoneNumber">Phone Number * <small>(E.164 / digits, e.g. +19876543210)</small></label>
-              <input
-                type="tel"
-                id="orderPhoneNumber"
-                placeholder="+19876543210"
-                pattern="^\+?[1-9]\d{1,14}$"
-                title="Phone number starting with non-zero digit, optionally prefixed with +"
-                required
-              />
-            </div>
-
-            <div class="form-group">
-              <label for="orderDeliveryNotes">Delivery Notes <small>(max 500 chars)</small></label>
-              <textarea id="orderDeliveryNotes" rows="2" maxlength="500" placeholder="Gate code, drop-off instructions..."></textarea>
-            </div>
-
-            <div class="order-summary-box">
-              <div class="summary-line">
-                <span>Cart Subtotal:</span>
-                <strong id="checkoutSubtotalDisplay">$0.00</strong>
-              </div>
-              <div class="summary-line">
-                <span>Shipping Cost:</span>
-                <strong id="checkoutShippingDisplay">$5.00</strong>
-              </div>
-              <div class="summary-line total-line">
-                <span>Estimated Total:</span>
-                <strong id="checkoutGrandTotalDisplay">$5.00</strong>
-              </div>
-            </div>
-
-            <button type="submit" class="btn btn-primary btn-block">✅ Place Order Now</button>
-          </form>
-        </div>
-      </div>
-    </section>
-
-    <!-- ==================== TAB 3: ORDERS, TRACKING, RETURNS & REVIEWS ==================== -->
-    <section id="tab-orders" class="tab-panel">
-      <div class="panel-header">
-        <div>
-          <h1>Orders, Live Tracking, Returns &amp; Reviews</h1>
-          <p class="text-muted">Filter orders by status, track shipments by Order ID or Tracking Number, cancel or return orders, and review delivered items.</p>
-        </div>
-        <div class="panel-actions">
-          <button type="button" id="refreshOrdersBtn" class="btn btn-secondary btn-sm">↻ Refresh Orders</button>
-        </div>
-      </div>
-
-      <!-- Tracking & Direct Lookup Bar -->
-      <div class="card lookup-strip">
-        <form id="trackByNumberForm" class="inline-form">
-          <label for="trackingNumberInput"><strong>Track by Tracking #:</strong></label>
-          <input type="text" id="trackingNumberInput" placeholder="e.g. TRK-1A2B3C4D" required />
-          <button type="submit" class="btn btn-primary btn-sm">📍 Track Number</button>
-        </form>
-
-        <form id="lookupOrderByIdForm" class="inline-form">
-          <label for="lookupOrderIdInput"><strong>Lookup Order UUID:</strong></label>
-          <input type="text" id="lookupOrderIdInput" placeholder="Order UUID..." required />
-          <button type="submit" class="btn btn-outline btn-sm">🔍 Get Order</button>
-          <button type="button" id="trackOrderIdBtn" class="btn btn-secondary btn-sm">🚚 Track UUID</button>
-        </form>
-      </div>
-
-      <!-- Tracking Result Box -->
-      <div id="trackingResultCard" class="card tracking-card hidden">
-        <div class="card-header-row">
-          <h3>📍 Shipment Tracking Details</h3>
-          <button type="button" id="closeTrackingCardBtn" class="btn btn-ghost btn-xs">✕ Close</button>
-        </div>
-        <div id="trackingResultBody"></div>
-      </div>
-
-      <!-- Status Filter Bar -->
-      <div class="filter-bar card">
-        <div class="filter-group">
-          <label for="orderStatusFilter">Filter by Order Status</label>
-          <select id="orderStatusFilter">
-            <option value="ALL">All Orders</option>
-            <option value="PENDING">PENDING</option>
-            <option value="CONFIRMED">CONFIRMED</option>
-            <option value="PROCESSING">PROCESSING</option>
-            <option value="SHIPPED">SHIPPED</option>
-            <option value="DELIVERED">DELIVERED</option>
-            <option value="CANCELLED">CANCELLED</option>
-            <option value="RETURN_REQUESTED">RETURN_REQUESTED</option>
-            <option value="RETURNED">RETURNED</option>
-            <option value="REFUNDED">REFUNDED</option>
-          </select>
-        </div>
-        <div class="filter-stats">
-          <span id="ordersCountBadge" class="badge">0 orders</span>
-        </div>
-      </div>
-
-      <!-- Orders List -->
-      <div id="ordersListContainer" class="orders-list">
-        <div class="empty-state">Sign in to view your orders.</div>
-      </div>
-    </section>
-
-    <!-- ==================== TAB 4: ACCOUNT, EMAIL OTP, ADDRESSES, BECOME SELLER ==================== -->
-    <section id="tab-account" class="tab-panel">
-      <div class="panel-header">
-        <div>
-          <h1>Account Settings, Email Verification &amp; Addresses</h1>
-          <p class="text-muted">Inspect your JWT session &amp; roles, verify your email via OTP, manage Buyer addresses, or upgrade to a Seller account.</p>
-        </div>
-        <div class="panel-actions">
-          <button type="button" id="refreshAccountBtn" class="btn btn-secondary btn-sm">↻ Refresh Profile</button>
-        </div>
-      </div>
-
-      <div class="three-col-grid">
-        <!-- Card 1: Session & Email OTP Verification -->
-        <div class="card">
-          <h2>🔐 Active Session &amp; Email OTP</h2>
-          <div id="sessionDebugBox" class="session-box">
-            <p class="text-muted">Not signed in. Click "Sign In / Register" in the top bar.</p>
-          </div>
-
-          <hr class="divider" />
-
-          <h3>📧 Verify Email Address</h3>
-          <p class="text-muted small">Step 1: Request an OTP to your registered email (`GET /api/user/email-verification`).</p>
-          <button type="button" id="sendEmailOtpBtn" class="btn btn-outline btn-sm btn-block">📨 Send Verification OTP to My Email</button>
-
-          <form id="verifyEmailOtpForm" class="stack-form mt-sm">
-            <div class="form-group">
-              <label for="emailOtpInput">Step 2: Enter Received 8-Digit OTP</label>
-              <input type="text" id="emailOtpInput" placeholder="Enter 8-digit OTP from latest email" required />
-            </div>
-            <button type="submit" id="verifyEmailOtpBtn" class="btn btn-primary btn-sm btn-block">✅ Verify Email OTP</button>
-            <div id="emailOtpStatusMsg" class="small"></div>
-          </form>
-        </div>
-
-        <!-- Card 2: Upgrade to Seller -->
-        <div class="card">
-          <h2>🏪 Become a Seller</h2>
-          <p class="text-muted small">Upgrade your account role to <code>SELLER</code> (`POST /api/seller/become`) so you can list and manage products in the Seller Studio.</p>
-          <form id="becomeSellerForm" class="stack-form">
-            <div class="form-group">
-              <label for="sellerStoreName">Store Name *</label>
-              <input type="text" id="sellerStoreName" placeholder="e.g. TechNova Official Store" required />
-            </div>
-            <div class="form-group">
-              <label for="sellerBusinessAddress">Business Address</label>
-              <input type="text" id="sellerBusinessAddress" placeholder="742 Evergreen Terrace, Springfield" />
-            </div>
-            <div class="form-group">
-              <label for="sellerStoreLogoUrl">Store Logo URL</label>
-              <input type="url" id="sellerStoreLogoUrl" placeholder="https://images.unsplash.com/photo-1556742049-0cfed4f6a45d?w=300" />
-            </div>
-            <button type="submit" class="btn btn-primary btn-block">🚀 Upgrade to Seller Account</button>
-          </form>
-          <div id="sellerUpgradeResult" class="mt-sm"></div>
-        </div>
-
-        <!-- Card 3: Add / Edit Buyer Address -->
-        <div class="card">
-          <div class="card-header-row">
-            <h2 id="addressFormTitle">📍 Add Buyer Address</h2>
-            <button type="button" id="cancelAddressEditBtn" class="btn btn-ghost btn-xs hidden">Cancel Edit</button>
-          </div>
-          <p class="text-muted small">Note: Address endpoints require <code>ROLE_BUYER</code> (`@PreAuthorize("hasRole('BUYER')")`).</p>
-          <form id="addressForm" class="stack-form">
-            <input type="hidden" id="editAddressId" value="" />
-            <div class="form-row">
-              <div class="form-group">
-                <label for="addrFullName">Full Name *</label>
-                <input type="text" id="addrFullName" placeholder="John Doe" required />
-              </div>
-              <div class="form-group">
-                <label for="addrPhone">Phone (10 digits) *</label>
-                <input type="text" id="addrPhone" placeholder="9876543210" pattern="\d{10}" minlength="10" maxlength="10" required />
-              </div>
-            </div>
-            <div class="form-group">
-              <label for="addrStreet">Street Address *</label>
-              <input type="text" id="addrStreet" placeholder="221B Baker Street" required />
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="addrCity">City *</label>
-                <input type="text" id="addrCity" placeholder="New York" required />
-              </div>
-              <div class="form-group">
-                <label for="addrState">State *</label>
-                <input type="text" id="addrState" placeholder="NY" required />
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="addrZipCode">ZIP Code *</label>
-                <input type="text" id="addrZipCode" placeholder="10001" required />
-              </div>
-              <div class="form-group">
-                <label for="addrLandmark">Landmark</label>
-                <input type="text" id="addrLandmark" placeholder="Near Central Park" />
-              </div>
-            </div>
-            <label class="checkbox-label">
-              <input type="checkbox" id="addrIsDefault" />
-              <span>Set as Default Shipping Address</span>
-            </label>
-            <button type="submit" id="addressSubmitBtn" class="btn btn-primary btn-block">💾 Save Address</button>
-          </form>
-        </div>
-      </div>
-
-      <!-- Saved Addresses List -->
-      <div class="card mt-md">
-        <div class="card-header-row">
-          <h2>Saved Buyer Addresses (`GET /api/user/addresses`)</h2>
-          <button type="button" id="refreshAddressesBtn" class="btn btn-outline btn-sm">↻ Load Addresses</button>
-        </div>
-        <div id="addressesListContainer" class="addresses-grid">
-          <div class="empty-state">Sign in as a BUYER to view saved addresses.</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ==================== TAB 5: SELLER STUDIO ==================== -->
-    <section id="tab-seller" class="tab-panel">
-      <div class="panel-header">
-        <div>
-          <h1>🏷️ Seller Studio</h1>
-          <p class="text-muted">Create, update, and delete products (`POST /api/product`, `PUT /api/product/{id}`, `DELETE /api/product/{id}`). Requires <code>ROLE_SELLER</code>.</p>
-        </div>
-      </div>
-
-      <div class="two-col-layout">
-        <!-- Left: Create / Update Product Form -->
-        <div class="card">
-          <div class="card-header-row">
-            <h2 id="sellerProductFormTitle">➕ Add New Product</h2>
-            <button type="button" id="cancelProductEditBtn" class="btn btn-ghost btn-xs hidden">Reset to New</button>
-          </div>
-          <form id="sellerProductForm" class="stack-form">
-            <input type="hidden" id="editProductId" value="" />
-            <div class="form-group">
-              <label for="prodName">Product Name *</label>
-              <input type="text" id="prodName" placeholder="Wireless Noise-Canceling Headphones" required />
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="prodBrand">Brand *</label>
-                <input type="text" id="prodBrand" placeholder="SoundCore" required />
-              </div>
-              <div class="form-group">
-                <label for="prodCategory">Category *</label>
-                <select id="prodCategory" required></select>
-              </div>
-            </div>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="prodPrice">Price ($) *</label>
-                <input type="number" id="prodPrice" step="0.01" min="0.01" placeholder="149.99" required />
-              </div>
-              <div class="form-group">
-                <label for="prodStock">Stock Quantity *</label>
-                <input type="number" id="prodStock" min="0" value="25" required />
-              </div>
-            </div>
-            <div class="form-group">
-              <label for="prodImageUrl">Image URL *</label>
-              <input type="text" id="prodImageUrl" placeholder="https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=600" required />
-            </div>
-            <div class="form-group">
-              <label for="prodDescription">Description *</label>
-              <textarea id="prodDescription" rows="3" placeholder="Detailed product features and specifications..." required></textarea>
-            </div>
-            <button type="submit" id="sellerProductSubmitBtn" class="btn btn-primary btn-block">🚀 Publish Product</button>
-          </form>
-        </div>
-
-        <!-- Right: Seller Product Manager -->
-        <div class="card">
-          <div class="card-header-row">
-            <h2>Catalog Products (Edit / Delete)</h2>
-            <button type="button" id="refreshSellerProductsBtn" class="btn btn-outline btn-sm">↻ Refresh List</button>
-          </div>
-          <p class="text-muted small">Click "Edit" on any product you own to load its details into the form, or "Delete" to remove it.</p>
-          <div id="sellerProductsTableWrap" class="table-wrap">
-            <div class="empty-state">No products loaded yet.</div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ==================== TAB 6: ADMIN CONSOLE ==================== -->
-    <section id="tab-admin" class="tab-panel">
-      <div class="panel-header">
-        <div>
-          <h1>🛡️ Admin Governance Console</h1>
-          <p class="text-muted">Filter and inspect registered users (`GET /api/admin/users`), suspend products (`PUT /api/admin/product/{id}/suspend`), and suspend sellers (`PUT /api/admin/seller/{id}/suspend`). Requires <code>ROLE_ADMIN</code>.</p>
-        </div>
-      </div>
-
-      <!-- Suspend Actions Row -->
-      <div class="two-col-layout mb-md">
-        <div class="card">
-          <h2>🚫 Suspend Product</h2>
-          <form id="adminSuspendProductForm" class="stack-form">
-            <div class="form-group">
-              <label for="suspendProductIdInput">Product UUID *</label>
-              <input type="text" id="suspendProductIdInput" placeholder="Enter or pick Product UUID..." required />
-            </div>
-            <div class="form-group">
-              <label for="suspendProductReasonInput">Suspension Reason *</label>
-              <input type="text" id="suspendProductReasonInput" placeholder="Counterfeit item / policy violation" required />
-            </div>
-            <button type="submit" class="btn btn-danger btn-block">Suspend Product</button>
-          </form>
-        </div>
-
-        <div class="card">
-          <h2>🚫 Suspend Seller</h2>
-          <form id="adminSuspendSellerForm" class="stack-form">
-            <div class="form-group">
-              <label for="suspendSellerIdInput">Seller UUID * <small>(Same as Seller's User UUID)</small></label>
-              <input type="text" id="suspendSellerIdInput" placeholder="Enter or pick Seller UUID..." required />
-            </div>
-            <div class="form-group">
-              <label for="suspendSellerReasonInput">Suspension Reason *</label>
-              <input type="text" id="suspendSellerReasonInput" placeholder="Repeated fulfillment violations" required />
-            </div>
-            <button type="submit" class="btn btn-danger btn-block">Suspend Seller &amp; User Account</button>
-          </form>
-        </div>
-      </div>
-
-      <!-- User Directory & Filters -->
-      <div class="card">
-        <div class="card-header-row">
-          <h2>👥 User Directory (`GET /api/admin/users`)</h2>
-          <button type="button" id="adminLoadUsersBtn" class="btn btn-primary btn-sm">🔍 Query Users</button>
-        </div>
-
-        <form id="adminUsersFilterForm" class="filter-bar mt-sm">
-          <div class="filter-group">
-            <label for="adminRoleFilter">Role</label>
-            <select id="adminRoleFilter">
-              <option value="">All Roles</option>
-              <option value="BUYER">BUYER</option>
-              <option value="SELLER">SELLER</option>
-              <option value="ADMIN">ADMIN</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <label for="adminGenderFilter">Gender</label>
-            <select id="adminGenderFilter">
-              <option value="">All Genders</option>
-              <option value="MALE">MALE</option>
-              <option value="FEMALE">FEMALE</option>
-              <option value="OTHER">OTHER</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <label for="adminAgeFilter">Exact Age</label>
-            <input type="number" id="adminAgeFilter" min="1" max="120" placeholder="Any" />
-          </div>
-          <div class="filter-group">
-            <label for="adminPageInput">Page</label>
-            <input type="number" id="adminPageInput" min="0" value="0" style="width:70px" />
-          </div>
-          <div class="filter-group">
-            <button type="submit" class="btn btn-secondary btn-sm">Apply Filters</button>
-          </div>
-        </form>
-
-        <div id="adminUsersTableContainer" class="table-wrap mt-sm">
-          <div class="empty-state">Sign in with an ADMIN account and click "Query Users" to inspect users.</div>
-        </div>
-      </div>
-    </section>
-
+    <section class="page" id="page-admin" aria-labelledby="adminHeading"><div class="container page-pad"><div class="page-header"><div><span class="eyebrow">ADMIN CONSOLE</span><h1 id="adminHeading">Keep the marketplace thriving.</h1><p>Review seller requests, oversee listings, and manage accounts.</p></div><button id="adminRefreshBtn" type="button" class="btn outline">↻ Refresh</button></div><div class="admin-stats"><div><span>Pending applications</span><strong id="adminPendingCount">—</strong></div><div><span>Users on this page</span><strong id="adminUsersCount">—</strong></div><div><span>Marketplace products</span><strong id="adminProductsCount">—</strong></div></div><div class="admin-grid"><section class="panel"><div class="panel-heading"><h2>Seller applications</h2><span>Awaiting review</span></div><div id="pendingSellers" class="admin-list"></div></section><section class="panel form-panel"><div class="panel-heading"><h2>Marketplace moderation</h2><span>Take action</span></div><form id="suspendProductForm"><h3>Suspend product</h3><label>Product <select id="suspendProductId" required><option value="">Choose a product</option></select></label><label>Reason <textarea id="suspendProductReason" required rows="2" placeholder="Explain the issue"></textarea></label><button type="submit" class="btn danger-outline">Suspend product</button></form><hr class="divider"><form id="suspendSellerForm"><h3>Suspend seller</h3><label>Seller ID <input id="suspendSellerId" required placeholder="Seller ID from application or user record"></label><label>Reason <textarea id="suspendSellerReason" rows="2" required></textarea></label><button type="submit" class="btn danger-outline">Suspend seller</button></form></section><section class="panel users-panel"><div class="panel-heading"><h2>Customer directory</h2><span>Accounts</span></div><form id="userFilters" class="admin-user-filters"><label>Role <select id="usersRole"><option value="">All roles</option><option value="BUYER">Buyer</option><option value="SELLER">Seller</option><option value="ADMIN">Admin</option></select></label><label>Page <input type="number" min="0" value="0" id="usersPage"></label><button type="submit" class="btn outline">Apply filters</button></form><div id="usersList" class="users-list"></div><div class="pagination" id="usersPagination"></div></section></div></div></section>
   </main>
 
-  <!-- ==================== MODAL 1: AUTH (LOGIN / REGISTER / FORGOT & RESET PASSWORD) ==================== -->
-  <dialog id="authDialog" class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <div class="auth-switcher">
-          <button type="button" class="auth-tab active" data-auth-tab="login">Sign In</button>
-          <button type="button" class="auth-tab" data-auth-tab="register">Register</button>
-          <button type="button" class="auth-tab" data-auth-tab="reset">Forgot / Reset Password</button>
-        </div>
-        <button type="button" id="closeAuthDialogBtn" class="btn btn-ghost btn-xs">✕</button>
-      </div>
+  <footer class="footer"><div class="container footer-main"><div><div class="footer-brand">shopsphere<span>✦</span></div><p>Find your kind of everything. Curated discoveries for everyday life.</p></div><div><strong>Explore</strong><button data-route="home">Home</button><button data-route="shop">Browse products</button><button data-route="deals">Special finds</button></div><div><strong>Your ShopSphere</strong><button data-route="orders">My orders</button><button data-route="account">My account</button><button data-route="cart">Shopping cart</button></div><div><strong>Made for discovery</strong><p>ShopSphere is a community marketplace. Buy with confidence, sell with care.</p></div></div><div class="container footer-bottom"><span>© <span id="footerYear"></span> ShopSphere</span><span>Made for the little things that make a big difference ✦</span></div></footer>
 
-      <!-- Login Panel -->
-      <div id="auth-panel-login" class="auth-panel active">
-        <form id="loginForm" class="stack-form">
-          <div class="form-group">
-            <label for="loginEmail">Email Address *</label>
-            <input type="email" id="loginEmail" placeholder="you@example.com" required />
-          </div>
-          <div class="form-group">
-            <label for="loginPassword">Password * <small>(min 6 chars)</small></label>
-            <input type="password" id="loginPassword" minlength="6" maxlength="72" placeholder="••••••••" required />
-          </div>
-          <button type="submit" class="btn btn-primary btn-block">Sign In</button>
-        </form>
-      </div>
+  <dialog class="auth-dialog" id="authDialog" aria-label="Sign in to ShopSphere"><div class="auth-shell"><div class="auth-visual"><div class="auth-visual-logo">shopsphere<span>✦</span></div><span class="auth-visual-spark">✳</span><div><span class="promo-kicker">YOUR NEW FAVORITE PLACE</span><h2>Good finds<br>start here.</h2><p>Your next favorite thing is waiting for you.</p></div></div><div class="auth-main"><button type="button" id="closeAuthBtn" class="dialog-close" aria-label="Close dialog">✕</button><div class="auth-tabs"><button type="button" data-auth-tab="login" class="active">Sign in</button><button type="button" data-auth-tab="register">Create account</button><button type="button" data-auth-tab="reset">Reset password</button></div><form id="loginForm" class="auth-form" data-auth-panel="login"><span class="eyebrow">WELCOME BACK</span><h2>It's good to see you.</h2><p>Sign in to continue your ShopSphere journey.</p><label>Email address <input id="loginEmail" type="email" required autocomplete="email" placeholder="you@example.com"></label><label>Password <input id="loginPassword" type="password" required autocomplete="current-password" placeholder="Enter your password"></label><div id="loginError" class="auth-inline-error hidden" role="alert" aria-live="assertive"></div><div class="auth-between"><span>Welcome home ✦</span><button id="forgotPasswordBtn" type="button">Forgot password?</button></div><button class="btn primary full" type="submit">Sign in →</button><button type="button" class="browse-guest" data-guest>Just browsing? Explore as guest</button></form><form id="registerForm" class="auth-form hidden" data-auth-panel="register"><span class="eyebrow">JOIN THE CLUB</span><h2>Let's make it official.</h2><p>Create your free account to start exploring.</p><div class="field-grid"><label>First name <input id="regFirst" required autocomplete="given-name"></label><label>Last name <input id="regLast" required autocomplete="family-name"></label></div><label>Email <input type="email" id="regEmail" required autocomplete="email"></label><div class="field-grid"><label>Phone (10 digits) <input id="regPhone" inputmode="tel" maxlength="10"></label><label>Password <input type="password" id="regPassword" required minlength="8" autocomplete="new-password"></label></div><div class="field-grid"><label>Gender (optional) <select id="regGender"><option value="">Prefer not to say</option><option value="MALE">Male</option><option value="FEMALE">Female</option><option value="OTHER">Other</option></select></label><label>Age (optional) <input type="number" id="regAge" min="13" max="120"></label></div><button type="submit" class="btn primary full">Create my account →</button></form><form id="resetForm" class="auth-form hidden" data-auth-panel="reset"><span class="eyebrow">WE'VE GOT YOU</span><h2>Let's get you back.</h2><p>Request a one-time code via email, then choose a new password.</p><label>Email <input type="email" id="resetEmail" required placeholder="you@example.com"></label><button id="requestResetBtn" type="button" class="btn outline full">Send recovery code</button><p class="otp-hint reset-otp-hint">You can request a new code after the countdown.</p><div class="field-grid"><label>8-digit code <input id="resetOtp" required inputmode="numeric" maxlength="8"></label><label>New password <input type="password" id="resetNewPassword" minlength="8" required></label></div><button class="btn primary full" type="submit">Reset password →</button></form></div></div></dialog>
 
-      <!-- Register Panel -->
-      <div id="auth-panel-register" class="auth-panel">
-        <form id="registerForm" class="stack-form">
-          <div class="form-row">
-            <div class="form-group">
-              <label for="regFirstName">First Name *</label>
-              <input type="text" id="regFirstName" placeholder="Tanmay" required />
-            </div>
-            <div class="form-group">
-              <label for="regLastName">Last Name *</label>
-              <input type="text" id="regLastName" placeholder="Saxena" required />
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="regEmail">Email Address *</label>
-            <input type="email" id="regEmail" placeholder="tanmay@example.com" required />
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="regPhone">Phone (10 digits) *</label>
-              <input type="text" id="regPhone" placeholder="9876543210" pattern="\d{10}" minlength="10" maxlength="10" required />
-            </div>
-            <div class="form-group">
-              <label for="regPassword">Password (8–72 chars) *</label>
-              <input type="password" id="regPassword" minlength="8" maxlength="72" placeholder="Minimum 8 characters" required />
-            </div>
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="regGender">Gender</label>
-              <select id="regGender">
-                <option value="MALE">MALE</option>
-                <option value="FEMALE">FEMALE</option>
-                <option value="OTHER">OTHER</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="regAge">Age</label>
-              <input type="number" id="regAge" min="13" max="120" value="22" />
-            </div>
-          </div>
-          <button type="submit" class="btn btn-primary btn-block">Create Account</button>
-        </form>
-      </div>
-
-      <!-- Forgot / Reset Password Panel -->
-      <div id="auth-panel-reset" class="auth-panel">
-        <form id="forgotPasswordForm" class="stack-form">
-          <h4>Step 1: Request Password Reset OTP</h4>
-          <div class="form-group">
-            <label for="forgotEmailInput">Registered Email *</label>
-            <input type="email" id="forgotEmailInput" placeholder="you@example.com" required />
-          </div>
-          <button type="submit" class="btn btn-outline btn-block">📨 Send Reset OTP</button>
-        </form>
-
-        <hr class="divider" />
-
-        <form id="resetPasswordForm" class="stack-form">
-          <h4>Step 2: Reset Password with OTP</h4>
-          <div class="form-group">
-            <label for="resetEmailInput">Email *</label>
-            <input type="email" id="resetEmailInput" placeholder="you@example.com" required />
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="resetOtpInput">OTP Code *</label>
-              <input type="text" id="resetOtpInput" placeholder="6-digit OTP" required />
-            </div>
-            <div class="form-group">
-              <label for="resetNewPasswordInput">New Password (8+ chars) *</label>
-              <input type="password" id="resetNewPasswordInput" minlength="8" maxlength="72" placeholder="New password" required />
-            </div>
-          </div>
-          <button type="submit" class="btn btn-primary btn-block">🔄 Update Password</button>
-        </form>
-      </div>
-    </div>
-  </dialog>
-
-  <!-- ==================== MODAL 2: PRODUCT DETAILS & REVIEWS ==================== -->
-  <dialog id="productDetailDialog" class="modal-dialog modal-lg">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 id="modalProductTitle">Product Details</h3>
-        <button type="button" id="closeProductModalBtn" class="btn btn-ghost btn-xs">✕</button>
-      </div>
-      <div id="modalProductBody"></div>
-    </div>
-  </dialog>
-
-  <!-- ==================== MODAL 3: RETURN ORDER / WRITE REVIEW ==================== -->
-  <dialog id="orderActionDialog" class="modal-dialog">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h3 id="orderActionModalTitle">Order Action</h3>
-        <button type="button" id="closeOrderActionModalBtn" class="btn btn-ghost btn-xs">✕</button>
-      </div>
-      <div id="orderActionModalBody"></div>
-    </div>
-  </dialog>
-
-  <script src="/js/app.js"></script>
+  <dialog id="productDialog" class="product-dialog" aria-label="Product details"><button type="button" class="dialog-close" data-close-dialog="productDialog" aria-label="Close product details">✕</button><div id="productDetailBody"></div></dialog>
+  <dialog id="orderDialog" class="order-dialog" aria-label="Order details"><button type="button" class="dialog-close" data-close-dialog="orderDialog" aria-label="Close order details">✕</button><div id="orderDetailBody"></div></dialog>
+  <div class="toast-stack" id="toastStack" role="status" aria-live="polite"></div>
 </body>
 </html>

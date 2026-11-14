@@ -33,7 +33,7 @@ public class PlaceOrderRequest {
     private String state;
 
     @NotBlank(message = "Zip code is required")
-    @Pattern(regexp = "\\d{5}(-\\d{4})?", message = "Invalid zip code format")
+    @Pattern(regexp = "^\\d{5}(-\\d{4})?|\\d{6}$", message = "Invalid zip code format (use 5-digit US or 6-digit Indian PIN)")
     private String zipCode;
 
     @NotBlank(message = "Country is required")

@@ -10,6 +10,8 @@ import com.example.e_commerce.order.dto.request.ReviewRequest;
 import com.example.e_commerce.order.dto.response.OrderResponse;
 import com.example.e_commerce.order.dto.response.OrderTrackingResponse;
 import com.example.e_commerce.order.dto.response.ReviewResponse;
+import com.example.e_commerce.order.dto.response.SellerOrderItemResponse;
+import com.example.e_commerce.order.dto.response.SellerOrderResponse;
 import com.example.e_commerce.order.enums.OrderStatus;
 import com.example.e_commerce.order.exception.OrderNotFoundException;
 import com.example.e_commerce.order.mapper.OrderMapper;
@@ -36,7 +38,9 @@ import org.springframework.stereotype.Service;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -58,6 +62,14 @@ public class OrderService {
         return userRepo.findByEmail(email);
     }
 
+    private UUID getCurrentSellerUserId() {
+        User user = getCurrentUser();
+        if (user.getSeller() == null) {
+            throw new IllegalStateException("User is not a seller");
+        }
+        return user.getSeller().getId();
+    }
+
     private String generateTrackingNumber() {
         return "TRK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     }
@@ -66,7 +78,6 @@ public class OrderService {
     public OrderResponse placeOrder(PlaceOrderRequest request) {
         User user = getCurrentUser();
 
-        // Get user's cart
         Cart cart = cartRepository.findByUserId(user.getId())
                 .orElseThrow(() -> new IllegalStateException("Cart is empty. Add items before placing an order."));
 
@@ -74,11 +85,9 @@ public class OrderService {
             throw new IllegalStateException("Cart is empty. Add items before placing an order.");
         }
 
-        // Create the order via mapper
         Order order = orderMapper.toOrder(user, generateTrackingNumber(), request, cart.getTotal());
         final Order finalOrder = order;
 
-        // Convert cart items to order items and validate stock
         List<OrderItem> orderItems = cart.getItems().stream()
                 .map(cartItem -> {
                     Product product = cartItem.getProduct();
@@ -89,6 +98,8 @@ public class OrderService {
                                 ". Available: " + product.getStockQuantity() +
                                 ", requested: " + cartItem.getQuantity());
                     }
+
+                    // --- Decrement stock ---
                     product.setStockQuantity(product.getStockQuantity() - cartItem.getQuantity());
                     productRepository.save(product);
 
@@ -152,7 +163,6 @@ public class OrderService {
         Order order = orderRepository.findByTrackingNumber(trackingNumber)
                 .orElseThrow(() -> new OrderNotFoundException("Order not found with tracking number: " + trackingNumber));
 
-        // Ensure the order belongs to the current user
         if (!order.getUser().getId().equals(user.getId())) {
             throw new OrderNotFoundException("Order not found with tracking number: " + trackingNumber);
         }
@@ -191,29 +201,24 @@ public class OrderService {
 
         Order order = orderItem.getOrder();
 
-        // Verify the order belongs to the current user
         if (!order.getUser().getId().equals(user.getId())) {
             throw new OrderNotFoundException("Order item not found with id: " + orderItemId);
         }
 
-        // Only delivered orders can be reviewed
         if (order.getStatus() != OrderStatus.DELIVERED) {
             throw new IllegalStateException(
                     "You can only review items from delivered orders. Current order status: " + order.getStatus());
         }
 
-        // Check if already reviewed
         if (reviewRepository.existsByOrderItemIdAndUserId(orderItemId, user.getId())) {
             throw new IllegalStateException("You have already reviewed this item");
         }
 
         Product product = orderItem.getProduct();
 
-        // Create the review via mapper
         Review review = orderMapper.toReview(orderItem, product, user, request);
         reviewRepository.save(review);
 
-        // Recalculate and update the product's average rating
         Double avgRating = reviewRepository.averageRatingByProductId(product.getId());
         Long reviewCount = reviewRepository.countByProductId(product.getId());
 
@@ -247,5 +252,113 @@ public class OrderService {
         User user = getCurrentUser();
         Page<Order> orders = orderRepository.findByUserIdAndStatusOrderByCreatedAtDesc(user.getId(), status, pageable);
         return orders.map(orderMapper::toResponse);
+    }
+
+    /**
+     * Get orders containing the current seller's products.
+     */
+    public Page<SellerOrderResponse> getSellerOrders(Pageable pageable) {
+        UUID sellerId = getCurrentSellerUserId();
+
+        Page<OrderItem> items = orderItemRepository.findByProductSellerId(sellerId, pageable);
+
+        // Group by order
+        Map<Order, List<OrderItem>> grouped = items.getContent().stream()
+                .collect(Collectors.groupingBy(OrderItem::getOrder, Collectors.toList()));
+
+        List<SellerOrderResponse> responses = grouped.entrySet().stream()
+                .map(entry -> {
+                    Order order = entry.getKey();
+                    List<OrderItem> sellerItems = entry.getValue();
+
+                    BigDecimal sellerTotal = sellerItems.stream()
+                            .map(OrderItem::getSubtotal)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+                    List<SellerOrderItemResponse> itemResponses = sellerItems.stream()
+                            .map(item -> SellerOrderItemResponse.builder()
+                                    .orderItemId(item.getId())
+                                    .productId(item.getProduct().getId())
+                                    .productName(item.getProduct().getName())
+                                    .productImageUrl(item.getProduct().getImageUrl())
+                                    .quantity(item.getQuantity())
+                                    .price(item.getPrice())
+                                    .subtotal(item.getSubtotal())
+                                    .build())
+                            .toList();
+
+                    return SellerOrderResponse.builder()
+                            .orderId(order.getId())
+                            .trackingNumber(order.getTrackingNumber())
+                            .status(order.getStatus())
+                            .createdAt(order.getCreatedAt())
+                            .shippingAddress(order.getShippingAddress())
+                            .city(order.getCity())
+                            .state(order.getState())
+                            .zipCode(order.getZipCode())
+                            .country(order.getCountry())
+                            .phoneNumber(order.getPhoneNumber())
+                            .items(itemResponses)
+                            .sellerTotal(sellerTotal)
+                            .build();
+                })
+                .toList();
+
+        return new Page<SellerOrderResponse>() {
+            @Override public int getTotalPages() { return items.getTotalPages(); }
+            @Override public long getTotalElements() { return items.getTotalElements(); }
+            @Override public int getNumber() { return items.getNumber(); }
+            @Override public int getSize() { return items.getSize(); }
+            @Override public int getNumberOfElements() { return responses.size(); }
+            @Override public List<SellerOrderResponse> getContent() { return responses; }
+            @Override public boolean hasContent() { return !responses.isEmpty(); }
+            @Override public org.springframework.data.domain.Sort getSort() { return items.getSort(); }
+            @Override public boolean isFirst() { return items.isFirst(); }
+            @Override public boolean isLast() { return items.isLast(); }
+            @Override public boolean hasNext() { return items.hasNext(); }
+            @Override public boolean hasPrevious() { return items.hasPrevious(); }
+            @Override public org.springframework.data.domain.Pageable nextPageable() { return items.nextPageable(); }
+            @Override public org.springframework.data.domain.Pageable previousPageable() { return items.previousPageable(); }
+            @Override public org.springframework.data.domain.Pageable previousPageable() { return items.previousPageable(); }
+            @Override public <U> org.springframework.data.domain.Page<U> map(java.util.function.Function<? super SellerOrderResponse, ? extends U> converter) {
+                return items.map(oi -> converter.apply(grouped.entrySet().stream()
+                        .filter(e -> e.getKey().equals(oi.getOrder()))
+                        .findFirst()
+                        .map(entry -> {
+                            Order order = entry.getKey();
+                            List<OrderItem> sellerItems = entry.getValue();
+                            BigDecimal sellerTotal = sellerItems.stream()
+                                    .map(OrderItem::getSubtotal)
+                                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                            List<SellerOrderItemResponse> itemResponses = sellerItems.stream()
+                                    .map(ite -> SellerOrderItemResponse.builder()
+                                            .orderItemId(ite.getId())
+                                            .productId(ite.getProduct().getId())
+                                            .productName(ite.getProduct().getName())
+                                            .productImageUrl(ite.getProduct().getImageUrl())
+                                            .quantity(ite.getQuantity())
+                                            .price(ite.getPrice())
+                                            .subtotal(ite.getSubtotal())
+                                            .build())
+                                    .toList();
+                            return SellerOrderResponse.builder()
+                                    .orderId(order.getId())
+                                    .trackingNumber(order.getTrackingNumber())
+                                    .status(order.getStatus())
+                                    .createdAt(order.getCreatedAt())
+                                    .shippingAddress(order.getShippingAddress())
+                                    .city(order.getCity())
+                                    .state(order.getState())
+                                    .zipCode(order.getZipCode())
+                                    .country(order.getCountry())
+                                    .phoneNumber(order.getPhoneNumber())
+                                    .items(itemResponses)
+                                    .sellerTotal(sellerTotal)
+                                    .build();
+                        })
+                        .orElse(null));
+            }
+            @Override public org.springframework.data.domain.Pageable getPageable() { return items.getPageable(); }
+        };
     }
 }

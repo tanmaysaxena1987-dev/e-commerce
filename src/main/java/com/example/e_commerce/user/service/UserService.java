@@ -2,7 +2,9 @@ package com.example.e_commerce.user.service;
 
 import com.example.e_commerce.user.dto.request.AddressRequestDto;
 import com.example.e_commerce.user.dto.request.UpdateAddressRequestDto;
+import com.example.e_commerce.user.dto.request.UpdateUserProfileRequestDto;
 import com.example.e_commerce.user.dto.response.AddressResponseDto;
+import com.example.e_commerce.user.dto.response.UserProfileResponseDto;
 import com.example.e_commerce.user.exception.AddressNotFoundException;
 import com.example.e_commerce.user.exception.IncorrectOtp;
 import com.example.e_commerce.user.mapper.AddressMapper;
@@ -128,5 +130,26 @@ public class UserService {
         addressRepo.delete(address);
 
         log.info("User {} deleted address (ID: {})", user.getEmail(), addressId);
+    }
+
+    public UserProfileResponseDto getCurrentUserProfile() {
+        User user = getCurrentUser();
+        return userMapper.toProfileResponse(user);
+    }
+
+    @Transactional
+    public UserProfileResponseDto updateCurrentUserProfile(UpdateUserProfileRequestDto request) {
+        User user = getCurrentUser();
+        userMapper.updateProfile(user, request);
+        User saved = userRepo.saveAndFlush(user);
+        log.info("User {} updated their profile", saved.getEmail());
+        return userMapper.toProfileResponse(saved);
+    }
+
+    public boolean getEmailStatus() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        String email = authentication.getName();
+        User user = userRepo.findByEmail(email);
+        return user.isEmailVerified();
     }
 }

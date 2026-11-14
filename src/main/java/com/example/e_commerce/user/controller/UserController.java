@@ -3,8 +3,10 @@ package com.example.e_commerce.user.controller;
 import com.example.e_commerce.user.dto.request.AddressRequestDto;
 import com.example.e_commerce.user.dto.request.EmailVerificationRequestDto;
 import com.example.e_commerce.user.dto.request.UpdateAddressRequestDto;
+import com.example.e_commerce.user.dto.request.UpdateUserProfileRequestDto;
 import com.example.e_commerce.user.dto.request.UserRegisterRequestDto;
 import com.example.e_commerce.user.dto.response.AddressResponseDto;
+import com.example.e_commerce.user.dto.response.UserProfileResponseDto;
 import com.example.e_commerce.user.dto.response.UserRegisterResponseDto;
 import com.example.e_commerce.user.service.UserService;
 import jakarta.validation.Valid;
@@ -73,5 +75,22 @@ public class UserController {
     public ResponseEntity<Void> deleteAddress(@PathVariable UUID addressId) {
         userService.deleteAddress(addressId);
         return ResponseEntity.noContent().build();
+    }
+    @GetMapping("/me")
+    public ResponseEntity<UserProfileResponseDto> getCurrentUserProfile() {
+        return ResponseEntity.ok(userService.getCurrentUserProfile());
+    }
+
+    @PutMapping("/me")
+    public ResponseEntity<UserProfileResponseDto> updateCurrentUserProfile(
+            @Valid @RequestBody UpdateUserProfileRequestDto request) {
+        return ResponseEntity.ok(userService.updateCurrentUserProfile(request));
+    }
+
+    @GetMapping("/email-status")
+    public ResponseEntity<Boolean> getEmailStatus(){
+        return ResponseEntity
+                .status(HttpStatus.OK)
+                .body(userService.getEmailStatus());
     }
 }

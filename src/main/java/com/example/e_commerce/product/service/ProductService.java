@@ -11,7 +11,7 @@ import com.example.e_commerce.product.repo.ProductRepository;
 import com.example.e_commerce.user.enums.SellerStatus;
 import com.example.e_commerce.user.model.User;
 import com.example.e_commerce.user.repo.UserRepo;
-import tools.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
