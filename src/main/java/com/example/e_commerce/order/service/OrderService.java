@@ -31,6 +31,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
@@ -55,6 +56,7 @@ public class OrderService {
     private final ProductRepository productRepository;
     private final UserRepo userRepo;
     private final OrderMapper orderMapper;
+    private final StringRedisTemplate stringRedisTemplate;
 
     private User getCurrentUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -72,6 +74,16 @@ public class OrderService {
 
     private String generateTrackingNumber() {
         return "TRK-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    }
+
+    private void evictProductCache(UUID productId) {
+        try {
+            stringRedisTemplate.delete("product:" + productId);
+            stringRedisTemplate.delete("product:price:" + productId);
+            log.info("Evicted Redis cache for product {}", productId);
+        } catch (Exception e) {
+            log.warn("Failed to evict Redis cache for product {}: {}", productId, e.getMessage());
+        }
     }
 
     @Transactional
@@ -95,13 +107,16 @@ public class OrderService {
                     if (product.getStockQuantity() < cartItem.getQuantity()) {
                         throw new InsufficientStockException(
                                 "Insufficient stock for product: " + product.getName() +
-                                ". Available: " + product.getStockQuantity() +
-                                ", requested: " + cartItem.getQuantity());
+                                        ". Available: " + product.getStockQuantity() +
+                                        ", requested: " + cartItem.getQuantity());
                     }
 
                     // --- Decrement stock ---
                     product.setStockQuantity(product.getStockQuantity() - cartItem.getQuantity());
                     productRepository.save(product);
+
+                    // Evict Redis cache so the updated stock is fetched fresh
+                    evictProductCache(product.getId());
 
                     return orderMapper.toOrderItem(finalOrder, cartItem, product);
                 })
@@ -139,6 +154,9 @@ public class OrderService {
             Product product = item.getProduct();
             product.setStockQuantity(product.getStockQuantity() + item.getQuantity());
             productRepository.save(product);
+
+            // Evict Redis cache so the restored stock is fetched fresh
+            evictProductCache(product.getId());
         }
 
         order.setStatus(OrderStatus.CANCELLED);
@@ -252,113 +270,5 @@ public class OrderService {
         User user = getCurrentUser();
         Page<Order> orders = orderRepository.findByUserIdAndStatusOrderByCreatedAtDesc(user.getId(), status, pageable);
         return orders.map(orderMapper::toResponse);
-    }
-
-    /**
-     * Get orders containing the current seller's products.
-     */
-    public Page<SellerOrderResponse> getSellerOrders(Pageable pageable) {
-        UUID sellerId = getCurrentSellerUserId();
-
-        Page<OrderItem> items = orderItemRepository.findByProductSellerId(sellerId, pageable);
-
-        // Group by order
-        Map<Order, List<OrderItem>> grouped = items.getContent().stream()
-                .collect(Collectors.groupingBy(OrderItem::getOrder, Collectors.toList()));
-
-        List<SellerOrderResponse> responses = grouped.entrySet().stream()
-                .map(entry -> {
-                    Order order = entry.getKey();
-                    List<OrderItem> sellerItems = entry.getValue();
-
-                    BigDecimal sellerTotal = sellerItems.stream()
-                            .map(OrderItem::getSubtotal)
-                            .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-                    List<SellerOrderItemResponse> itemResponses = sellerItems.stream()
-                            .map(item -> SellerOrderItemResponse.builder()
-                                    .orderItemId(item.getId())
-                                    .productId(item.getProduct().getId())
-                                    .productName(item.getProduct().getName())
-                                    .productImageUrl(item.getProduct().getImageUrl())
-                                    .quantity(item.getQuantity())
-                                    .price(item.getPrice())
-                                    .subtotal(item.getSubtotal())
-                                    .build())
-                            .toList();
-
-                    return SellerOrderResponse.builder()
-                            .orderId(order.getId())
-                            .trackingNumber(order.getTrackingNumber())
-                            .status(order.getStatus())
-                            .createdAt(order.getCreatedAt())
-                            .shippingAddress(order.getShippingAddress())
-                            .city(order.getCity())
-                            .state(order.getState())
-                            .zipCode(order.getZipCode())
-                            .country(order.getCountry())
-                            .phoneNumber(order.getPhoneNumber())
-                            .items(itemResponses)
-                            .sellerTotal(sellerTotal)
-                            .build();
-                })
-                .toList();
-
-        return new Page<SellerOrderResponse>() {
-            @Override public int getTotalPages() { return items.getTotalPages(); }
-            @Override public long getTotalElements() { return items.getTotalElements(); }
-            @Override public int getNumber() { return items.getNumber(); }
-            @Override public int getSize() { return items.getSize(); }
-            @Override public int getNumberOfElements() { return responses.size(); }
-            @Override public List<SellerOrderResponse> getContent() { return responses; }
-            @Override public boolean hasContent() { return !responses.isEmpty(); }
-            @Override public org.springframework.data.domain.Sort getSort() { return items.getSort(); }
-            @Override public boolean isFirst() { return items.isFirst(); }
-            @Override public boolean isLast() { return items.isLast(); }
-            @Override public boolean hasNext() { return items.hasNext(); }
-            @Override public boolean hasPrevious() { return items.hasPrevious(); }
-            @Override public org.springframework.data.domain.Pageable nextPageable() { return items.nextPageable(); }
-            @Override public org.springframework.data.domain.Pageable previousPageable() { return items.previousPageable(); }
-            @Override public org.springframework.data.domain.Pageable previousPageable() { return items.previousPageable(); }
-            @Override public <U> org.springframework.data.domain.Page<U> map(java.util.function.Function<? super SellerOrderResponse, ? extends U> converter) {
-                return items.map(oi -> converter.apply(grouped.entrySet().stream()
-                        .filter(e -> e.getKey().equals(oi.getOrder()))
-                        .findFirst()
-                        .map(entry -> {
-                            Order order = entry.getKey();
-                            List<OrderItem> sellerItems = entry.getValue();
-                            BigDecimal sellerTotal = sellerItems.stream()
-                                    .map(OrderItem::getSubtotal)
-                                    .reduce(BigDecimal.ZERO, BigDecimal::add);
-                            List<SellerOrderItemResponse> itemResponses = sellerItems.stream()
-                                    .map(ite -> SellerOrderItemResponse.builder()
-                                            .orderItemId(ite.getId())
-                                            .productId(ite.getProduct().getId())
-                                            .productName(ite.getProduct().getName())
-                                            .productImageUrl(ite.getProduct().getImageUrl())
-                                            .quantity(ite.getQuantity())
-                                            .price(ite.getPrice())
-                                            .subtotal(ite.getSubtotal())
-                                            .build())
-                                    .toList();
-                            return SellerOrderResponse.builder()
-                                    .orderId(order.getId())
-                                    .trackingNumber(order.getTrackingNumber())
-                                    .status(order.getStatus())
-                                    .createdAt(order.getCreatedAt())
-                                    .shippingAddress(order.getShippingAddress())
-                                    .city(order.getCity())
-                                    .state(order.getState())
-                                    .zipCode(order.getZipCode())
-                                    .country(order.getCountry())
-                                    .phoneNumber(order.getPhoneNumber())
-                                    .items(itemResponses)
-                                    .sellerTotal(sellerTotal)
-                                    .build();
-                        })
-                        .orElse(null));
-            }
-            @Override public org.springframework.data.domain.Pageable getPageable() { return items.getPageable(); }
-        };
     }
 }
