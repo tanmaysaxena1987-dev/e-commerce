@@ -12,6 +12,7 @@ import com.example.e_commerce.order.dto.response.OrderTrackingResponse;
 import com.example.e_commerce.order.dto.response.ReviewResponse;
 import com.example.e_commerce.order.dto.response.SellerOrderItemResponse;
 import com.example.e_commerce.order.dto.response.SellerOrderResponse;
+import com.example.e_commerce.order.dto.response.SellerOrderSummaryResponse;
 import com.example.e_commerce.order.enums.OrderStatus;
 import com.example.e_commerce.order.exception.OrderNotFoundException;
 import com.example.e_commerce.order.mapper.OrderMapper;
@@ -24,6 +25,8 @@ import com.example.e_commerce.order.repo.ReviewRepository;
 import com.example.e_commerce.product.exception.InsufficientStockException;
 import com.example.e_commerce.product.model.Product;
 import com.example.e_commerce.product.repo.ProductRepository;
+import com.example.e_commerce.user.enums.SellerStatus;
+import com.example.e_commerce.user.model.Seller;
 import com.example.e_commerce.user.model.User;
 import com.example.e_commerce.user.repo.UserRepo;
 import jakarta.transaction.Transactional;
@@ -38,6 +41,9 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Arrays;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -70,6 +76,15 @@ public class OrderService {
             throw new IllegalStateException("User is not a seller");
         }
         return user.getSeller().getId();
+    }
+
+    private Seller getCurrentApprovedSeller() {
+        User user = getCurrentUser();
+        Seller seller = user.getSeller();
+        if (seller == null || seller.getStatus() != SellerStatus.APPROVED) {
+            throw new IllegalStateException("Your seller account is not approved");
+        }
+        return seller;
     }
 
     private String generateTrackingNumber() {
@@ -270,5 +285,92 @@ public class OrderService {
         User user = getCurrentUser();
         Page<Order> orders = orderRepository.findByUserIdAndStatusOrderByCreatedAtDesc(user.getId(), status, pageable);
         return orders.map(orderMapper::toResponse);
+    }
+
+    // ──────────────────────────────────────────────
+    //  Seller order summary / dashboard
+    // ──────────────────────────────────────────────
+
+    public SellerOrderSummaryResponse getSellerOrderSummary(Pageable pageable) {
+        Seller seller = getCurrentApprovedSeller();
+        UUID sellerId = seller.getId();
+
+        // Overall stats
+        long totalOrders = orderItemRepository.countDistinctOrdersBySellerId(sellerId);
+        long totalItemsSold = orderItemRepository.sumQuantityBySellerId(sellerId);
+        BigDecimal totalRevenue = orderItemRepository.sumRevenueBySellerId(sellerId);
+
+        // Status breakdown
+        Map<OrderStatus, Long> ordersByStatus = new EnumMap<>(OrderStatus.class);
+        Arrays.stream(OrderStatus.values()).forEach(status ->
+            ordersByStatus.put(status, orderItemRepository.countDistinctOrdersBySellerIdAndStatus(sellerId, status))
+        );
+
+        // Ratings
+        double averageRating = reviewRepository.averageRatingBySellerId(sellerId);
+        long totalReviews = reviewRepository.countBySellerId(sellerId);
+        long totalProducts = productRepository.countBySellerId(sellerId);
+
+        // Recent orders (seller's items grouped by order)
+        Page<OrderItem> sellerItemsPage = orderItemRepository.findByProductSellerId(sellerId, pageable);
+
+        // Group items by order and build SellerOrderResponse list
+        Map<UUID, List<OrderItem>> grouped = sellerItemsPage.getContent().stream()
+                .collect(Collectors.groupingBy(oi -> oi.getOrder().getId()));
+
+        List<SellerOrderResponse> recentOrders = grouped.values().stream()
+                .map(items -> {
+                    Order order = items.get(0).getOrder();
+                    List<SellerOrderItemResponse> itemResponses = items.stream()
+                            .map(this::toSellerOrderItemResponse)
+                            .toList();
+                    BigDecimal sellerTotal = itemResponses.stream()
+                            .map(SellerOrderItemResponse::getSubtotal)
+                            .reduce(BigDecimal.ZERO, BigDecimal::add);
+                    return SellerOrderResponse.builder()
+                            .orderId(order.getId())
+                            .trackingNumber(order.getTrackingNumber())
+                            .status(order.getStatus())
+                            .createdAt(order.getCreatedAt())
+                            .shippingAddress(order.getShippingAddress())
+                            .city(order.getCity())
+                            .state(order.getState())
+                            .zipCode(order.getZipCode())
+                            .country(order.getCountry())
+                            .phoneNumber(order.getPhoneNumber())
+                            .items(itemResponses)
+                            .sellerTotal(sellerTotal)
+                            .build();
+                })
+                .toList();
+
+        return SellerOrderSummaryResponse.builder()
+                .sellerId(sellerId)
+                .storeName(seller.getStoreName())
+                .totalOrders(totalOrders)
+                .totalItemsSold(totalItemsSold)
+                .totalRevenue(totalRevenue)
+                .ordersByStatus(ordersByStatus)
+                .averageRating(Math.round(averageRating * 100.0) / 100.0)
+                .totalReviews(totalReviews)
+                .totalProducts(totalProducts)
+                .recentOrders(recentOrders)
+                .page(pageable.getPageNumber())
+                .size(pageable.getPageSize())
+                .totalElements(sellerItemsPage.getTotalElements())
+                .totalPages(sellerItemsPage.getTotalPages())
+                .build();
+    }
+
+    private SellerOrderItemResponse toSellerOrderItemResponse(OrderItem oi) {
+        return SellerOrderItemResponse.builder()
+                .orderItemId(oi.getId())
+                .productId(oi.getProduct().getId())
+                .productName(oi.getProduct().getName())
+                .productImageUrl(oi.getProduct().getImageUrl())
+                .quantity(oi.getQuantity())
+                .price(oi.getPrice())
+                .subtotal(oi.getSubtotal())
+                .build();
     }
 }

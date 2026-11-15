@@ -401,7 +401,7 @@
   // Shopping cart and checkout — all writes go to the real backend.
   async function addToCart(id) {
     if(!requireAuth())return;
-    if(!isBuyer()){toast('Shopping cart checkout is currently available to buyer accounts.','info');return;}
+
     try {state.cart=await api('/cart',{method:'POST',body:{productId:id,quantity:1}});updateIdentity();toast('Added to your cart ✦','success');if(state.currentRoute==='cart')renderCart();}
     catch(e){toast(e.message,'error');}
   }
@@ -548,9 +548,56 @@
     }
   }
 
-  // Seller inventory and admin moderation.
+  
+  // --- Seller order dashboard ---
+  let sellerDashPage = 0;
+
+  async function loadSellerDashboard(page) {
+    if(!isSeller()) return;
+    sellerDashPage = Math.max(0, page ?? sellerDashPage);
+    try {
+      const data = await api('/orders/seller/summary?page=' + sellerDashPage + '&size=5&sort=createdAt,desc');
+      if(!data) return;
+      el('dashTotalOrders').textContent = String(data.totalOrders ?? '---');
+      el('dashRevenue').textContent = '\u20B9' + (Number(data.totalRevenue || 0).toLocaleString('en-IN', {minimumFractionDigits:2, maximumFractionDigits:2}));
+      el('dashAvgRating').textContent = Number(data.averageRating || 0).toFixed(1) + ' \u2605';
+      el('dashTotalReviews').textContent = String(data.totalReviews ?? 0);
+      el('dashItemsSold').textContent = String(data.totalItemsSold ?? 0);
+      el('dashTotalProducts').textContent = String(data.totalProducts ?? 0);
+      el('dashOrdersCount').textContent = String(data.totalOrders ?? 0);
+      const statusIds = ['PENDING','CONFIRMED','PROCESSING','SHIPPED','DELIVERED','CANCELLED','RETURN_REQUESTED','RETURNED','REFUNDED'];
+      const breakdown = statusIds.map(s => Number(data.ordersByStatus?.[s] || 0));
+      if(breakdown.some(n => n > 0)) {
+        el('dashStatusBreakdown').innerHTML = '<div class="status-breakdown-inner">' +
+          statusIds.map((s,i) => breakdown[i] > 0
+            ? '<span class="status-badge ' + s.toLowerCase() + '">' + s.replaceAll('_',' ') + ': ' + breakdown[i] + '</span>'
+            : '').join(' ') + '</div>';
+      } else {
+        el('dashStatusBreakdown').innerHTML = '<p class="muted">No orders yet across any status.</p>';
+      }
+      const orders = Array.isArray(data.recentOrders) ? data.recentOrders : [];
+      el('sellerOrdersList').innerHTML = orders.length
+        ? orders.map(o => '<div class="seller-order-card"><div class="seller-order-top"><span><strong>#' + esc(String(o.orderId).slice(0,8).toUpperCase()) + '</strong><small> ' + esc(o.trackingNumber||'N/A') + '</small></span>' + status(o.status) + '</div><div class="seller-order-items">' +
+          (Array.isArray(o.items) ? o.items.map(i => '<span class="seller-order-item">' + esc(i.productName) + ' \u00D7 ' + Number(i.quantity) + ' <small>' + money(i.subtotal) + '</small></span>').join(' ') : '') +
+          '</div><div class="seller-order-bottom"><span class="muted">' + esc(humanDate(o.createdAt)) + '</span><strong>' + money(o.sellerTotal || 0) + '</strong></div></div>').join('')
+        : '<p class="muted">No orders yet for your products.</p>';
+      const pag = el('sellerOrdersPagination');
+      pag.innerHTML = '';
+      if(data.totalPages > 1) {
+        const prev = Math.max(0, sellerDashPage - 1);
+        const next = sellerDashPage + 1;
+        pag.innerHTML = '<button class="page-button" data-seller-order-page="' + prev + '" ' + (sellerDashPage <= 0 ? 'disabled' : '') + '>\u2190 Previous</button>' +
+          '<span class="muted">Page ' + (data.page+1) + ' / ' + data.totalPages + '</span>' +
+          '<button class="page-button" data-seller-order-page="' + next + '" ' + (next >= data.totalPages ? 'disabled' : '') + '>Next \u2192</button>';
+      }
+    } catch(e) {
+      el('dashTotalOrders').textContent = 'Error';
+      el('sellerOrdersList').innerHTML = '<p class="muted">Could not load orders: ' + esc(e.message) + '</p>';
+    }
+  }
+// Seller inventory and admin moderation.
   function sellerProducts(){return isSeller()?state.products.filter(p=>String(p.sellerId)===String(state.seller.id)):[];}
-  function renderSeller(){if(!isSeller())return;const list=sellerProducts();el('sellerListingCount').textContent=list.length;el('sellerStockCount').textContent=list.filter(inStock).length;el('sellerStoreName').textContent=state.seller.storeName||'My store';el('inventoryCount').textContent=`${list.length} listings`;el('sellerInventory').innerHTML=list.length?list.map(p=>`<div class="inventory-row"><div class="order-item-picture" style="display:grid;place-items:center">${imageFor(p)}</div><div><strong>${esc(p.name)}</strong><small>${money(p.price)} · ${Number(p.stockQuantity)} in stock</small><br>${status(p.status)}</div><div class="button-row"><button type="button" class="btn outline btn-sm" data-edit-product="${esc(p.id)}">Edit</button><button type="button" class="btn ghost btn-sm" data-delete-product="${esc(p.id)}">Delete</button></div></div>`).join(''):empty('Your store is ready','Add your first product to share it with shoppers.');}
+  function renderSeller(){if(!isSeller())return;loadSellerDashboard(0);const list=sellerProducts();el('sellerListingCount').textContent=list.length;el('sellerStockCount').textContent=list.filter(inStock).length;el('sellerStoreName').textContent=state.seller.storeName||'My store';el('inventoryCount').textContent=`${list.length} listings`;el('sellerInventory').innerHTML=list.length?list.map(p=>`<div class="inventory-row"><div class="order-item-picture" style="display:grid;place-items:center">${imageFor(p)}</div><div><strong>${esc(p.name)}</strong><small>${money(p.price)} · ${Number(p.stockQuantity)} in stock</small><br>${status(p.status)}</div><div class="button-row"><button type="button" class="btn outline btn-sm" data-edit-product="${esc(p.id)}">Edit</button><button type="button" class="btn ghost btn-sm" data-delete-product="${esc(p.id)}">Delete</button></div></div>`).join(''):empty('Your store is ready','Add your first product to share it with shoppers.');}
   function resetProductForm(){el('productForm').reset();el('editingProductId').value='';el('productFormTitle').textContent='Add a product';el('saveProductBtn').textContent='Publish product';}
   function editProduct(id){const p=state.products.find(x=>x.id===id);if(!p||!isSeller()||String(p.sellerId)!==String(state.seller.id))return;el('editingProductId').value=id;el('pName').value=p.name||'';el('pBrand').value=p.brand||'';el('pCategory').value=p.category||'';el('pPrice').value=p.price;el('pCompareAtPrice').value=p.compareAtPrice||'';el('pStock').value=p.stockQuantity;el('pImage').value=p.imageUrl||'';el('pDescription').value=p.description||'';el('productFormTitle').textContent='Edit your product';el('saveProductBtn').textContent='Save changes';el('productForm').scrollIntoView({behavior:'smooth'});}
   async function saveProduct(event){event.preventDefault();if(!isSeller())return;const id=el('editingProductId').value;const body={name:el('pName').value.trim(),brand:el('pBrand').value.trim(),category:el('pCategory').value,price:Number(el('pPrice').value),stockQuantity:Number(el('pStock').value),imageUrl:el('pImage').value.trim(),description:el('pDescription').value.trim()};if(el('pCompareAtPrice').value.trim()){body.compareAtPrice=Number(el('pCompareAtPrice').value);if(body.compareAtPrice<=body.price){toast('Original price must be higher than the selling price.','error');return;}}try{await api(id?`/product/${encodeURIComponent(id)}`:'/product',{method:id?'PUT':'POST',body});toast(id?'Product updated':'Product published','success');resetProductForm();await loadProducts('');renderSeller();}catch(e){toast(e.message,'error');}}
@@ -591,7 +638,7 @@
       if(button.hasAttribute('data-delete-product')){await deleteProduct(button.dataset.deleteProduct);return;}
       if(button.hasAttribute('data-approve-seller')){await approveSeller(button.dataset.approveSeller);return;}
       if(button.hasAttribute('data-fill-seller')){el('suspendSellerId').value=button.dataset.fillSeller;el('suspendSellerId').scrollIntoView({behavior:'smooth'});return;}
-      if(button.hasAttribute('data-users-page')){await loadAdminUsers(Number(button.dataset.usersPage));return;}
+      if(button.hasAttribute('data-seller-order-page')){await loadSellerDashboard(Number(button.dataset.sellerOrderPage));return;} if(button.hasAttribute('data-users-page')){await loadAdminUsers(Number(button.dataset.usersPage));return;}
       if(button.hasAttribute('data-auth-tab')){setAuthTab(button.dataset.authTab);return;}
       if(button.hasAttribute('data-close-dialog')){closeDialog(button.dataset.closeDialog);return;}
       if(button.hasAttribute('data-guest')){closeDialog('authDialog');route('home');return;}

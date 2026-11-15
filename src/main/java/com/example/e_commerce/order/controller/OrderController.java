@@ -6,6 +6,7 @@ import com.example.e_commerce.order.dto.request.ReviewRequest;
 import com.example.e_commerce.order.dto.response.OrderResponse;
 import com.example.e_commerce.order.dto.response.OrderTrackingResponse;
 import com.example.e_commerce.order.dto.response.ReviewResponse;
+import com.example.e_commerce.order.dto.response.SellerOrderSummaryResponse;
 import com.example.e_commerce.order.enums.OrderStatus;
 import com.example.e_commerce.order.service.OrderService;
 import jakarta.validation.Valid;
@@ -88,5 +89,12 @@ public class OrderController {
             @Valid @RequestBody ReviewRequest request) {
         ReviewResponse response = orderService.reviewOrderItem(orderItemId, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    @GetMapping("/seller/summary")
+    public ResponseEntity<SellerOrderSummaryResponse> getSellerOrderSummary(
+            @PageableDefault(size = 10, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
+        SellerOrderSummaryResponse response = orderService.getSellerOrderSummary(pageable);
+        return ResponseEntity.ok(response);
     }
 }

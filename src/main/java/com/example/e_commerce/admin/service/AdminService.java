@@ -6,6 +6,11 @@ import com.example.e_commerce.admin.dto.response.ProductResponseDto;
 import com.example.e_commerce.admin.dto.response.SellerResponseDto;
 import com.example.e_commerce.admin.dto.response.UserResponseDto;
 import com.example.e_commerce.admin.mapper.AdminMapper;
+import com.example.e_commerce.order.enums.OrderStatus;
+import com.example.e_commerce.order.exception.OrderNotFoundException;
+import com.example.e_commerce.order.mapper.OrderMapper;
+import com.example.e_commerce.order.model.Order;
+import com.example.e_commerce.order.repo.OrderRepository;
 import com.example.e_commerce.product.enums.Status;
 import com.example.e_commerce.product.exception.ProductNotFoundException;
 import com.example.e_commerce.product.model.Product;
@@ -40,6 +45,8 @@ public class AdminService {
     private final ProductRepository productRepository;
     private final AdminMapper adminMapper;
     private final AdminRepo adminRepo;
+    private final OrderRepository orderRepository;
+    private final OrderMapper orderMapper;
 
     @Value("${admin.secret-key:admin-secret-key}")
     private String adminSecretKey;

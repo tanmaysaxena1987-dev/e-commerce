@@ -15,4 +15,6 @@ public interface ProductRepository extends JpaRepository<Product, UUID> {
             "LOWER(p.brand) LIKE LOWER(CONCAT('%',:keyword,'%') ) OR " +
             "LOWER(p.description) LIKE LOWER(concat('%',:keyword,'%') ) ")
     List<Product> searchProduct(String keyword);
+
+    long countBySellerId(UUID sellerId);
 }
