@@ -446,16 +446,6 @@ This repository is a **college full-stack project**, not a fully production-read
 - **Testing:** Extend the existing context-loading test with service, controller, repository, and end-to-end tests.
 - **Operations:** Add database migrations, production logging profiles, monitoring, and CI/CD.
 
-## 👥 Project Team
-
-This repository was prepared as a college lab project. Add your group members and accurately describe the work each person contributed, such as implementation, design, validation, testing, presentation, or documentation.
-
-| Member | GitHub | Contribution |
-| --- | --- | --- |
-| *Add name* | *Add profile* | *Describe contribution* |
-| *Add name* | *Add profile* | *Describe contribution* |
-| *Add name* | *Add profile* | *Describe contribution* |
-
 ## 📚 Project Links
 
 - **Repository:** https://github.com/tanmaysaxena1987-dev/e-commerce
